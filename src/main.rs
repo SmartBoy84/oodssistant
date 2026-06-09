@@ -3,8 +3,13 @@ use std::{net::SocketAddr, str::FromStr};
 use tokio::sync::mpsc;
 
 use crate::{
-    bark::builder::BarkClientBuilder, brain::pages::{Homepage, Subpage1}, gcal::GoogleCalendar,
-    server::builder::OodServerBuilder,
+    bark::builder::BarkClientBuilder,
+    brain::test::homepage::{DynamicStaticTest, Homepage, ParaPageTest},
+    gcal::GoogleCalendar,
+    server::{
+        builder::OodServerBuilder,
+        interface::page::{basic::OodStatic, para::OodPara},
+    },
 };
 
 mod bark;
@@ -25,7 +30,9 @@ const GOOGLE_CLIENT_SECRET: &str = "GOOGLE_CLIENT_SECRET";
 const GOOGLE_MY_REFRESH_TOKEN: &str = "GOOGLE_MY_REFRESH_TOKEN";
 
 const GOOGLE_REDIRECT_URI: &str = "127.0.0.1:3001";
-const OOD_SERVER_URI: &str = "192.168.0.105:3002";
+const OOD_SERVER_URI: &str = "127.0.0.1:3002";
+
+const OOD_SHORTCUT_NAME: &str = "ood";
 
 #[tokio::main]
 async fn main() {
@@ -45,28 +52,24 @@ async fn main() {
         }
     }
 
-    let mut gcal = GoogleCalendar::builder(
-        google_client_id,
-        google_client_secret,
-        SocketAddr::from_str(GOOGLE_REDIRECT_URI).unwrap(),
-    )
-    .login(google_my_refresh_token)
-    .await
-    .unwrap();
+    // let mut gcal = GoogleCalendar::builder(
+    //     google_client_id,
+    //     google_client_secret,
+    //     SocketAddr::from_str(GOOGLE_REDIRECT_URI).unwrap(),
+    // )
+    // .login(google_my_refresh_token)
+    // .await
+    // .unwrap();
 
-    let bark = BarkClientBuilder::new(bark_key).build();
-
-    let (list_tx, mut list_rx) = mpsc::channel(1);
+    // let bark = BarkClientBuilder::new(bark_key).build();
 
     let server = OodServerBuilder::new(SocketAddr::from_str(OOD_SERVER_URI).unwrap())
-        .add_route(Homepage::new(list_tx))
-        .add_route(Subpage1)
-        .start_server();
-
-    let mut names = vec![];
-    loop {
-        let name = list_rx.recv().await.unwrap();
-        names.push(name);
-        println!("{names:?}")
-    }
+        .add_route(OodStatic(Homepage::new(OOD_SHORTCUT_NAME)))
+        .add_route(OodStatic(DynamicStaticTest("/a")))
+        .add_route(OodStatic(DynamicStaticTest("/b")))
+        .add_route(OodPara(ParaPageTest))
+        .start_server()
+        .await_server()
+        .await
+        .unwrap();
 }

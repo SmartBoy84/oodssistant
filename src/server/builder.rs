@@ -93,6 +93,7 @@ pub fn new_session_path<P: OodPage>(
     let para_handler = P::ParaHandler::para_extractor(para_settings);
 
     para_handler
+        .and(warp::path::end())
         .and(warp::any().map(move || page.clone()))
         .and(warp::any().map(move || sessions.clone()))
         .and_then(new_session::<P::Para, P::PageSession>)

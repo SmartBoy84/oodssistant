@@ -6,7 +6,8 @@ use crate::server::interface::{
     bridge::{OodBridge, OodFinished},
 };
 
-pub mod template;
+pub mod basic;
+pub mod para;
 
 // structs containing parameters picked up from custom path handlng
 pub trait OodPagePara: Send {}
@@ -25,7 +26,7 @@ where
 {
     type ParaSettings: OodPageParaSettings;
     type PageSession: OodPageSession<Self::Para> + 'static;
-    type ParaHandler: OodPageHandler<Self>;
+    type ParaHandler: OodPageHandler<Self::ParaSettings, Self::Para>;
 
     type Para: OodPagePara + Send;
 
@@ -45,13 +46,13 @@ pub trait OodPageSession<P: OodPagePara>: Clone + Send {
     // remember 'static just means is *can* remain alive for the rest of the program's duration - of course, owner can drop it earlier (not a leak!)
     fn start_session(
         self,
-        bridge: OodBridge,
-        para: P,
+        b: OodBridge,
+        p: P,
     ) -> impl std::future::Future<Output = Result<OodFinished, OodAppErr>> + Send + 'static;
 
     fn app_open(
         self,
-        para: P,
+        p: P,
     ) -> (
         impl Future<Output = Result<OodFinished, OodAppErr>> + Send + 'static,
         mpsc::Receiver<OodReplyType>,
@@ -59,19 +60,18 @@ pub trait OodPageSession<P: OodPagePara>: Clone + Send {
     ) {
         let (out_tx, out_rx) = mpsc::channel(1);
         let (in_tx, in_rx) = mpsc::channel(1);
-        let fut = self.start_session(OodBridge::new(out_tx, in_rx), para);
+        let fut = self.start_session(OodBridge::new(out_tx, in_rx), p);
         (fut, out_rx, in_tx)
     }
 }
 
 // use a similar pattern to my restman-rs library (where POST implements the function)
 
-pub trait OodPageHandler<P>
-where
-    P: OodPage,
-{
+pub trait OodPageHandler<S: OodPageParaSettings, P: OodPagePara> {
+    /// WARNING; add a warp::get() (or whatever you want) BUT dont add a end()
+
     /// this is the FIRST part of URL (you are responsible for matching URI here)
     fn para_extractor(
-        settings: P::ParaSettings,
-    ) -> impl Filter<Extract = (P::Para,), Error = warp::Rejection> + Clone + Send;
+        settings: S,
+    ) -> impl Filter<Extract = (P,), Error = warp::Rejection> + Clone + Send;
 }

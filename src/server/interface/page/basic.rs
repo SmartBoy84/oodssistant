@@ -2,6 +2,8 @@ use warp::Filter;
 
 use crate::server::interface::page::{OodPage, OodPageHandler, OodPageSession};
 
+pub struct OodStatic<T: OodStaticPage>(pub T);
+
 // now we define various "default handlers" that the page can inherit to avoid having to implement OodPageHandler manually
 pub trait OodStaticPage: OodPageSession<()> {
     // this is for pages that have static URLs -> no input parameters from the path
@@ -19,9 +21,9 @@ impl<P: OodBasicPage> OodStaticPage for P {
     }
 }
 
-impl<P> OodPage for P
+impl<P> OodPage for OodStatic<P>
 where
-    P: OodStaticPage + OodPageSession<()> + Send + Sync + 'static,
+    P: OodStaticPage + Send + Sync + 'static,
 {
     // here's the trick to simplify it for the end user - Self is the page session!
     type ParaSettings = &'static str;
@@ -29,7 +31,7 @@ where
 
     // I purposely keep these two separate + separate from the actual OodPage to support patterns like
     // /some_route/{para} and /another_route/{para} -> map to same page session
-    type PageSession = Self;
+    type PageSession = P;
     type ParaHandler = OodStaticPageHandler;
 
     fn split(
@@ -38,33 +40,32 @@ where
         <Self as OodPage>::PageSession,
         <Self as OodPage>::ParaSettings,
     ) {
-        let url = self.url();
-        (self, url)
+        let url = self.0.url();
+        (self.0, url)
     }
 }
 
+// keep OodPageHandler separate
 pub struct OodStaticPageHandler;
-impl<P> OodPageHandler<P> for OodStaticPageHandler
-where
-    P: OodStaticPage + OodPageSession<()> + Sync + 'static,
-{
+impl OodPageHandler<&'static str, ()> for OodStaticPageHandler {
     fn para_extractor(
-        settings: <P as OodPage>::ParaSettings,
-    ) -> impl Filter<Extract = (<P as OodPage>::Para,), Error = warp::Rejection> + Clone {
-        assert!(settings.starts_with('/')); // program assumes this otherwise redirects are relative
-
+        settings: &'static str,
+    ) -> impl Filter<Extract = ((),), Error = warp::Rejection> + Clone + Send {
+        if !settings.starts_with('/') {
+            // program assumes this otherwise redirects are relative
+            panic!("'{settings}' doesn't start with '/'!");
+        }
         // uri in path can't start with '/' but URI must be specified with back slash to be relative to root
         let url = settings
             .trim()
             .trim_start_matches('/')
             .trim_end_matches('/');
 
-        let base = if url.len() == 0 {
-            warp::path::end().boxed()
-        } else {
-            warp::path(url).and(warp::path::end()).boxed()
+        let mut path = warp::get().boxed();
+        if url.len() > 0 {
+            path = path.and(warp::path(url)).boxed();
         };
 
-        warp::get().and(base).map(|| ())
+        path.map(|| ())
     }
 }
