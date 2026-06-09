@@ -11,6 +11,7 @@ By far my most complex project yet. It includes two API libraries (Gcal -> OAuth
     - [x] Firstly, is basic page functionality working?
         - I.e., all the ood actions (button, text input, timer, external url)  
     - [x] Can you access external state?
+    - [x] ~~Is one-shot working?~~ Abandoned, don't need it + way too complex
     - 1) dynamic pages (e.g., pages with same handler but different URLs), 
     - 2) custom query parameters (e.g., page wiht custom handler), 
     - 3) static page

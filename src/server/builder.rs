@@ -5,6 +5,7 @@ use warp::{Filter, filters::BoxedFilter};
 
 use crate::server::{
     OodServer, OodSessionContainer,
+    handlers::new_session,
     interface::page::{OodPage, OodPageHandler},
 };
 
@@ -34,10 +35,10 @@ impl OodServerBuilder<EmptyRoute> {
         impl Filter<Extract = (warp::reply::Response,), Error = warp::Rejection> + Clone,
     >
     where
-        P: OodPage + 'static,
+        P: OodPage,
     {
         // let route = p.create_page(&self.sessions);
-        let route = P::ParaHandler::create_page(p, self.sessions.clone());
+        let route = new_session_path(p, self.sessions.clone());
         OodServerBuilder {
             route,
             server_uri: self.server_uri,
@@ -54,13 +55,13 @@ impl OodServerBuilder<BoxedFilter<(warp::reply::Response,)>> {
         impl Filter<Extract = (warp::reply::Response,), Error = warp::Rejection> + Clone,
     >
     where
-        P: OodPage + 'static,
+        P: OodPage,
     {
         // NOTE; we have to use Response which is dynamic because reply can be various things (json, redirect etc)
         OodServerBuilder {
             route: self
                 .route
-                .or(P::ParaHandler::create_page(p, self.sessions.clone()).boxed())
+                .or(new_session_path(p, self.sessions.clone()))
                 .unify(),
             server_uri: self.server_uri,
             sessions: self.sessions,
@@ -79,4 +80,17 @@ where
     pub fn start_server(self) -> OodServer {
         OodServer::new(self.route, self.server_uri, self.sessions)
     }
+}
+
+pub fn new_session_path<P: OodPage>(
+    page: P,
+    sessions: OodSessionContainer,
+) -> impl Filter<Extract = (warp::reply::Response,), Error = warp::Rejection> + Clone {
+    let (page, para_settings) = page.split();
+    let para_handler = P::ParaHandler::para_extractor(para_settings);
+
+    para_handler
+        .and(warp::any().map(move || page.clone()))
+        .and(warp::any().map(move || sessions.clone()))
+        .and_then(new_session::<P>)
 }

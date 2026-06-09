@@ -2,10 +2,7 @@ use std::{marker::PhantomData, pin::Pin};
 
 use async_trait::async_trait;
 
-use crate::server::{
-    OodSessionContainer,
-    interface::page::{OodPage, OodPageType},
-};
+use crate::server::{OodSessionContainer, handlers::new_session, interface::page::OodPage};
 
 pub struct OodInternalPayload<P: OodPage> {
     s: P::PageSession,
@@ -61,7 +58,7 @@ impl<P: OodPage> OodInternalRedirect for OodInternalPayload<P> {
         NOTE; this spawns a new sessions rather than carry forward previous session id
         -> each page has its own session id
          */
-        Box::pin(P::PageType::redirect::<P>(self.s, self.para, sessions))
+        Box::pin(new_session::<P>(self.para,self.s, sessions))
         // she's a'beautiful ma! this took so long to figure out but clean af right?!
     }
 }

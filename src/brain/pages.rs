@@ -4,7 +4,7 @@ use crate::server::interface::{
     OodAction, OodAppErr,
     bridge::{OodBridge, OodFinished},
     elements::{OodOpenUri, OodTextInput},
-    page::{IsOneShot, IsSession, OodPageSession, template::OodBasicPage},
+    page::{OodPageSession, template::OodBasicPage},
 };
 
 #[derive(Clone)]
@@ -19,7 +19,6 @@ impl Homepage {
 }
 
 impl OodBasicPage for Homepage {
-    type PageType = IsOneShot;
     const URI: &str = "/";
 }
 

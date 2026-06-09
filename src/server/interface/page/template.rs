@@ -1,25 +1,19 @@
 use warp::Filter;
 
-use crate::server::interface::page::{OodPage, OodPageHandler, OodPageSession, OodPageType};
+use crate::server::interface::page::{OodPage, OodPageHandler, OodPageSession};
 
 // now we define various "default handlers" that the page can inherit to avoid having to implement OodPageHandler manually
 pub trait OodStaticPage: OodPageSession<()> {
-    type PageType: OodPageType;
-
     // this is for pages that have static URLs -> no input parameters from the path
     fn url(&self) -> &'static str; // but url can be derived from the page itself
 }
 
 pub trait OodBasicPage: OodPageSession<()> {
-    type PageType: OodPageType;
-
     // *most* basic page type - no parameters + URL is fixed
     const URI: &str;
 }
 
 impl<P: OodBasicPage> OodStaticPage for P {
-    type PageType = <Self as OodBasicPage>::PageType;
-
     fn url(&self) -> &'static str {
         Self::URI
     }
@@ -31,7 +25,6 @@ where
 {
     // here's the trick to simplify it for the end user - Self is the page session!
     type ParaSettings = &'static str;
-    type PageType = <P as OodStaticPage>::PageType;
     type Para = ();
 
     // I purposely keep these two separate + separate from the actual OodPage to support patterns like

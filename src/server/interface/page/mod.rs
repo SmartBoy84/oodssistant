@@ -1,21 +1,18 @@
 use async_trait::async_trait;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 use warp::{Filter, filters::BoxedFilter};
 
 use crate::server::{
     OodSessionContainer,
+    handlers::new_session,
     interface::{
         OodAppErr, OodReplyType,
         bridge::{OodBridge, OodFinished},
     },
 };
 
-pub mod page_type;
 pub mod template;
-
-// OodPage types
-pub struct IsOneShot;
-pub struct IsSession;
 
 // structs containing parameters picked up from custom path handlng
 pub trait OodPagePara {}
@@ -32,10 +29,8 @@ pub trait OodPage: Send
 where
     Self: Sized,
 {
-    type PageType: OodPageType;
-
     type ParaSettings: OodPageParaSettings;
-    type PageSession: OodPageSession<Self::Para> + Send + Sync + 'static;
+    type PageSession: OodPageSession<Self::Para> + 'static;
     type ParaHandler: OodPageHandler<Self>;
 
     type Para: OodPagePara + Send;
@@ -77,50 +72,12 @@ pub trait OodPageSession<P: OodPagePara>: Clone + Send {
 
 // use a similar pattern to my restman-rs library (where POST implements the function)
 
-#[async_trait]
-pub trait OodPageType {
-    /*
-    Don't *fully* get why boxing is necessary here, but the gist of it seems to be:
-    if I did impl Filter<...> then implement add_para_handler, because each handler takes an anonymous closure (as well as various other state-dependent things under the hood)
-    the return type is varies per call -> but of course trait requires implmentation to yield one concrete type
-    Thus, boxing is necessary
-     */
-
-    // for external routing (i.e., user visits a page)
-    fn add_para_handler<I, P: OodPage>(
-        session: P::PageSession,
-        i: I,
-        sessions: OodSessionContainer,
-    ) -> BoxedFilter<(warp::reply::Response,)>
-    where
-        I: Filter<Extract = (P::Para,), Error = warp::Rejection> + Clone + Send + Sync + 'static;
-
-    // for redirects (internal routing - i.e., one page routes to another page)
-    async fn redirect<P: OodPage>(
-        session: P::PageSession,
-        para: P::Para,
-        sessions: OodSessionContainer,
-    ) -> Result<warp::reply::Response, warp::reject::Rejection>;
-}
-
 pub trait OodPageHandler<P>
 where
     P: OodPage,
-    P::PageSession: 'static,
 {
-    fn create_page(
-        p: P,
-        sessions: OodSessionContainer,
-    ) -> impl Filter<Extract = (warp::reply::Response,), Error = warp::Rejection> + Clone + Send + Sync
-    where
-        P: Sized,
-    {
-        let (session, settings) = p.split();
-        P::PageType::add_para_handler::<_, P>(session, Self::para_extractor(settings), sessions)
-    }
-
     /// this is the FIRST part of URL (you are responsible for matching URI here)
     fn para_extractor(
         settings: P::ParaSettings,
-    ) -> impl Filter<Extract = (P::Para,), Error = warp::Rejection> + Clone + Send + Sync + 'static;
+    ) -> impl Filter<Extract = (P::Para,), Error = warp::Rejection> + Clone + Send;
 }

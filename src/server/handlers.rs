@@ -7,6 +7,7 @@ it would clone it but the lifetimes became hellish to manage (mentally and in pr
 use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
 use tokio::time::Instant;
+use uuid::Uuid;
 use warp::reply::Reply;
 
 use crate::server::{
@@ -17,15 +18,16 @@ use crate::server::{
     },
 };
 
+// NOTE; session_id is NON-negotiable (I tried other options, trust me... like one shot page)
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OodSessionPayload {
-    session_id: Option<String>,
+    session_id: String,
     payload: serde_json::Value,
 }
 
 impl OodSessionPayload {
-    fn new(session_id: Option<String>, payload: serde_json::Value) -> Self {
+    fn new(session_id: String, payload: serde_json::Value) -> Self {
         Self {
             payload,
             session_id,
@@ -37,11 +39,12 @@ impl OodSessionPayload {
 new_session needs sessions because new_session -> session_handler -> Redirect -> IsSession -> needs to append!
 */
 pub async fn new_session<P: OodPage>(
-    p: P::PageSession,
     para: P::Para,
-    session_id: Option<String>,
-    sessions: &OodSessionContainer,
-) -> Result<(OodSession, impl warp::Reply), warp::reject::Rejection> {
+    p: P::PageSession,
+    sessions: OodSessionContainer,
+) -> Result<warp::reply::Response, warp::reject::Rejection> {
+    let session_id = Uuid::new_v4().to_string();
+
     let (fut, out_rx, in_tx) = p.app_open(para);
 
     let task = tokio::spawn(async {
@@ -58,9 +61,11 @@ pub async fn new_session<P: OodPage>(
         last_change: Instant::now(),
     };
 
-    let first_res = session_handler(session_id, &mut session, None, sessions.clone()).await;
+    let first_res = session_handler(session_id.clone(), &mut session, None, sessions.clone()).await;
 
-    Ok((session, first_res?))
+    let _ = sessions.lock().await.insert(session_id, session); // make persistent
+
+    Ok(first_res?)
 }
 
 pub fn make_json_response(payload: String) -> warp::reply::Response {
@@ -88,7 +93,7 @@ pub async fn persistent_session(
     session.last_change = Instant::now(); // i.e., last time this endpoint was queried
 
     println!("comm [{session_id}]");
-    session_handler(Some(session_id), session, body, sessions.clone()).await
+    session_handler(session_id, session, body, sessions.clone()).await
 }
 
 pub async fn get_session_cache(
@@ -109,12 +114,11 @@ pub async fn get_session_cache(
 }
 
 pub async fn session_handler(
-    session_id: Option<String>,
+    session_id: String,
     session: &mut OodSession,
     body: Option<serde_json::Value>,
     sessions: OodSessionContainer,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
-    
     if let Some(body) = body {
         session.send(body).await? // if not, we are in an initial request
     }
