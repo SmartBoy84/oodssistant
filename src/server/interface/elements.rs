@@ -29,11 +29,14 @@ impl OodAction for OodInfo {
     type Reply = EmptyResponse;
 }
 
-pub struct OodButtonList<'a>(PhantomData<&'a usize>);
+pub struct OodButtonList<T>(PhantomData<T>);
 
-impl<'a> OodAction for OodButtonList<'a> {
+impl<T> OodAction for OodButtonList<T>
+where
+    T: Serialize + AsRef<str>,
+{
     const NAME: &'static str = "button";
-    type Item = [&'a str]; // (name, return value)
+    type Item = [T]; // (name, return value)
     type Reply = String; // shortcut limitation/simplification
 }
 pub struct OodTimer; // start a timer on the device

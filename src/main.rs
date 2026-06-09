@@ -1,16 +1,6 @@
 use std::{net::SocketAddr, str::FromStr};
 
-use tokio::sync::mpsc;
-
-use crate::{
-    bark::builder::BarkClientBuilder,
-    brain::test::homepage::{DynamicStaticTest, Homepage, ParaPageTest},
-    gcal::GoogleCalendar,
-    server::{
-        builder::OodServerBuilder,
-        interface::page::{basic::OodStatic, para::OodPara},
-    },
-};
+use crate::server::{builder::OodServerBuilder, interface::page::basic::OodStatic};
 
 mod bark;
 mod brain;
@@ -63,13 +53,9 @@ async fn main() {
 
     // let bark = BarkClientBuilder::new(bark_key).build();
 
-    let server = OodServerBuilder::new(SocketAddr::from_str(OOD_SERVER_URI).unwrap())
-        .add_route(OodStatic(Homepage::new(OOD_SHORTCUT_NAME)))
-        .add_route(OodStatic(DynamicStaticTest("/a")))
-        .add_route(OodStatic(DynamicStaticTest("/b")))
-        .add_route(OodPara(ParaPageTest))
-        .start_server()
-        .await_server()
-        .await
-        .unwrap();
+    // let server = OodServerBuilder::new(SocketAddr::from_str(OOD_SERVER_URI).unwrap())
+    //     .start_server()
+    //     .await_server()
+    //     .await
+    //     .unwrap();
 }

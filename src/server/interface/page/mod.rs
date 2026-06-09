@@ -1,13 +1,44 @@
 use tokio::sync::mpsc;
 use warp::Filter;
 
-use crate::server::interface::{
-    OodAppErr, OodReplyType,
-    bridge::{OodBridge, OodFinished},
+use crate::server::{
+    OodSessionContainer,
+    handlers::SessionId,
+    interface::{
+        OodAppErr, OodReplyType,
+        bridge::{OodBridge, OodFinished},
+    },
 };
 
 pub mod basic;
 pub mod para;
+
+// for structs being populated in new handler
+pub trait IsOodSessionPara {
+    fn new(session_id: &SessionId, sessions: &OodSessionContainer) -> Self;
+}
+
+impl IsOodSessionPara for () {
+    // this is for clients that do not need session parameters (avoid redundant copying)
+    fn new(_: &SessionId, _: &OodSessionContainer) {
+        ()
+    }
+}
+
+// goes WITHOUT saying, do not try to search for yourself in sessions using session_id
+pub struct OodSessionPara {
+    pub session_id: SessionId,
+    pub sessions: OodSessionContainer,
+}
+impl IsOodSessionPara for OodSessionPara {
+    fn new(session_id: &SessionId, sessions: &OodSessionContainer) -> Self {
+        // make a copy of everything so that it is accessible inside the task
+        Self {
+            session_id: session_id.to_owned(),
+            sessions: sessions.to_owned(),
+        }
+    }
+}
 
 // structs containing parameters picked up from custom path handlng
 pub trait OodPagePara: Send {}
@@ -43,16 +74,20 @@ where
 
 // note; can't impose ParaHandler trait here as that would create a cycle!
 pub trait OodPageSession<P: OodPagePara>: Clone + Send {
+    type SessionPara: IsOodSessionPara;
+
     // remember 'static just means is *can* remain alive for the rest of the program's duration - of course, owner can drop it earlier (not a leak!)
     fn start_session(
         self,
         b: OodBridge,
         p: P,
+        s: Self::SessionPara,
     ) -> impl std::future::Future<Output = Result<OodFinished, OodAppErr>> + Send + 'static;
 
     fn app_open(
         self,
         p: P,
+        s: Self::SessionPara,
     ) -> (
         impl Future<Output = Result<OodFinished, OodAppErr>> + Send + 'static,
         mpsc::Receiver<OodReplyType>,
@@ -60,7 +95,7 @@ pub trait OodPageSession<P: OodPagePara>: Clone + Send {
     ) {
         let (out_tx, out_rx) = mpsc::channel(1);
         let (in_tx, in_rx) = mpsc::channel(1);
-        let fut = self.start_session(OodBridge::new(out_tx, in_rx), p);
+        let fut = self.start_session(OodBridge::new(out_tx, in_rx), p, s);
         (fut, out_rx, in_tx)
     }
 }

@@ -3,20 +3,19 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
-use crate::server::interface::redirect::OodInternalRedirect;
+use crate::server::{handlers::SessionId, interface::redirect::OodInternalRedirect};
 
 pub mod bridge;
 pub mod elements;
 pub mod page;
 pub mod redirect;
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub enum OodReplyType {
     Payload(serde_json::Value), // don't want to deal with cache right now...
     Error(String),              // outside doesn't need to know error type exactly
     Finished,
-    Redirect(#[serde(skip_serializing)] Box<dyn OodInternalRedirect>),
+    InternalRedirect(Box<dyn OodInternalRedirect>),
+    ExternalRedirect(SessionId),
 }
 
 #[derive(Debug, Error)]

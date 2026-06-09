@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{borrow::Cow, fmt::Display};
 
 pub mod test;
 
@@ -7,12 +7,12 @@ const SHORTCUT_ACTION: &str = "run-shortcut";
 const SHORTCUT_TEXT_ACTION: &str = "text";
 const SHORTCUT_TEXT_FIELD: &str = "text";
 
-pub struct OodShortcut {
+pub struct OodShortcut<'a> {
     name: &'static str,
-    input: String, // other types supported, but I only need text
+    input: Cow<'a, str>, // other types supported, but I only need text
 }
 
-impl Display for OodShortcut {
+impl<'a> Display for OodShortcut<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -22,8 +22,11 @@ impl Display for OodShortcut {
     }
 }
 
-impl OodShortcut {
-    fn new(name: &'static str, input: String) -> Self {
-        Self { name, input }
+impl<'a> OodShortcut<'a> {
+    fn new(name: &'static str, input: impl Into<Cow<'a, str>>) -> Self {
+        Self {
+            name,
+            input: input.into(),
+        }
     }
 }

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::server::{
-    handlers::{get_session_cache, session_handler},
+    handlers::{SessionId, get_session_cache, session_handler},
     interface::OodReplyType,
 };
 use thiserror::Error;
@@ -25,7 +25,7 @@ const JSON_MAX_LENGTH: u64 = 1024 * 16;
 
 const SESSION_PART: &str = "session";
 
-type OodSessionContainer = Arc<Mutex<HashMap<String, OodSession>>>;
+type OodSessionContainer = Arc<Mutex<HashMap<SessionId, OodSession>>>;
 
 pub struct OodServer {
     sessions: OodSessionContainer,
@@ -110,13 +110,13 @@ impl OodServer {
     {
         let session_filter = {
             let sessions = sessions.clone();
-            let sessions_filter = warp::any().map(move || sessions.clone());
 
             // extract session id
             let session_base = warp::path(SESSION_PART)
                 .and(warp::path::param::<String>())
+                .map(Into::into) // don't reply on warp parsing because that is faillible (unncessary)
                 .and(warp::path::end())
-                .and(sessions_filter);
+                .and(warp::any().map(move || sessions.clone()));
 
             // present cache
             let get_session_route = session_base
