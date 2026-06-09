@@ -41,8 +41,6 @@ where
         let url = self.url();
         (self, url)
     }
-
-    // extractor: /{self.url()} - aaand done!
 }
 
 pub struct OodStaticPageHandler;

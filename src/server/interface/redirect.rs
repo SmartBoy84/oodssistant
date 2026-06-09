@@ -1,29 +1,27 @@
-use std::{marker::PhantomData, pin::Pin};
-
 use async_trait::async_trait;
 
-use crate::server::{OodSessionContainer, handlers::new_session, interface::page::OodPage};
+use crate::server::{
+    OodSessionContainer,
+    handlers::new_session,
+    interface::page::{OodPagePara, OodPageSession},
+};
 
-pub struct OodInternalPayload<P: OodPage> {
-    s: P::PageSession,
-    para: P::Para,
-    _page: PhantomData<P>,
+pub struct OodInternalPayload<S: OodPageSession<P>, P: OodPagePara> {
+    s: S,
+    p: P,
 }
 
-pub trait IntoOodInternalPayload
+pub trait IntoOodInternalPayload<P>
 where
-    Self: OodPage,
+    P: OodPagePara,
+    Self: OodPageSession<P>,
 {
-    fn new_internal_payload(s: Self::PageSession, para: Self::Para) -> OodInternalPayload<Self>;
+    fn into_internal_payload(self, p: P) -> OodInternalPayload<Self, P>;
 }
 
-impl<P: OodPage> IntoOodInternalPayload for P {
-    fn new_internal_payload(s: P::PageSession, para: P::Para) -> OodInternalPayload<Self> {
-        OodInternalPayload {
-            s,
-            para,
-            _page: PhantomData,
-        }
+impl<P: OodPagePara, S: OodPageSession<P>> IntoOodInternalPayload<P> for S {
+    fn into_internal_payload(self, p: P) -> OodInternalPayload<Self, P> {
+        OodInternalPayload { s: self, p }
     }
 }
 
@@ -40,25 +38,18 @@ pub trait OodInternalRedirect: Send {
 Remember; IsOneShot and IsSession have different implementations solely because I don't want SessionContainer to be copied uncessarily
 for IsOneShot (via the filter)
 */
-impl<P: OodPage> OodInternalRedirect for OodInternalPayload<P> {
-    fn redirect<'async_trait>(
+#[async_trait]
+impl<P: OodPagePara + Send, S: OodPageSession<P>> OodInternalRedirect for OodInternalPayload<S, P> {
+    async fn redirect(
         self: Box<Self>,
         sessions: OodSessionContainer,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<warp::reply::Response, warp::reject::Rejection>>
-                + Send
-                + 'async_trait,
-        >,
-    >
-    where
-        Self: 'async_trait,
-    {
+    ) -> Result<warp::reply::Response, warp::reject::Rejection> {
         /*
         NOTE; this spawns a new sessions rather than carry forward previous session id
         -> each page has its own session id
          */
-        Box::pin(new_session::<P>(self.para,self.s, sessions))
+        let Self { s, p } = *self;
+        new_session::<P, S>(p, s, sessions).await
         // she's a'beautiful ma! this took so long to figure out but clean af right?!
     }
 }

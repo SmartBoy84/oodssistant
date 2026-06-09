@@ -14,7 +14,7 @@ use crate::server::{
     OodReqErr, OodSession, OodSessionContainer,
     interface::{
         OodReplyType,
-        page::{OodPage, OodPageSession},
+        page::{OodPagePara, OodPageSession},
     },
 };
 
@@ -38,14 +38,15 @@ impl OodSessionPayload {
 /*
 new_session needs sessions because new_session -> session_handler -> Redirect -> IsSession -> needs to append!
 */
-pub async fn new_session<P: OodPage>(
-    para: P::Para,
-    p: P::PageSession,
+// it is independent of OodPage to support "internal pages"
+pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
+    p: P,
+    s: S,
     sessions: OodSessionContainer,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
     let session_id = Uuid::new_v4().to_string();
 
-    let (fut, out_rx, in_tx) = p.app_open(para);
+    let (fut, out_rx, in_tx) = s.app_open(p);
 
     let task = tokio::spawn(async {
         if let Err(e) = fut.await {
@@ -53,7 +54,7 @@ pub async fn new_session<P: OodPage>(
         }
     });
 
-    let mut session = OodSession {
+    let session = OodSession {
         rx: out_rx,
         tx: in_tx,
         task,
@@ -61,9 +62,8 @@ pub async fn new_session<P: OodPage>(
         last_change: Instant::now(),
     };
 
-    let first_res = session_handler(session_id.clone(), &mut session, None, sessions.clone()).await;
-
-    let _ = sessions.lock().await.insert(session_id, session); // make persistent
+    let _ = sessions.lock().await.insert(session_id.clone(), session); // make persistent
+    let first_res = session_handler(session_id, sessions, None).await;
 
     Ok(first_res?)
 }
@@ -77,23 +77,6 @@ pub fn make_json_response(payload: String) -> warp::reply::Response {
         warp::http::HeaderValue::from_static("application/json"),
     );
     return res;
-}
-
-pub async fn persistent_session(
-    session_id: String,
-    sessions: OodSessionContainer,
-    body: Option<serde_json::Value>,
-) -> Result<warp::reply::Response, warp::reject::Rejection> {
-    let mut session_guard = sessions.lock().await;
-
-    let session = session_guard
-        .get_mut(&session_id)
-        .ok_or(OodReqErr::SessionNotFound)?;
-
-    session.last_change = Instant::now(); // i.e., last time this endpoint was queried
-
-    println!("comm [{session_id}]");
-    session_handler(session_id, session, body, sessions.clone()).await
 }
 
 pub async fn get_session_cache(
@@ -115,12 +98,22 @@ pub async fn get_session_cache(
 
 pub async fn session_handler(
     session_id: String,
-    session: &mut OodSession,
-    body: Option<serde_json::Value>,
     sessions: OodSessionContainer,
+    body: Option<serde_json::Value>,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
+    let mut session_guard = sessions.lock().await;
+
+    // if coming from new_session, this is a bit redundant but it is the best way to avoid deadlock that I could think of
+    let session = session_guard
+        .get_mut(&session_id)
+        .ok_or(OodReqErr::SessionNotFound)?;
+
+    println!("comm [{session_id}]");
+
     if let Some(body) = body {
         session.send(body).await? // if not, we are in an initial request
+    } else {
+        session.last_change = Instant::now(); // i.e., last time this endpoint was queried
     }
 
     let res = session.recv().await?;
@@ -137,6 +130,7 @@ pub async fn session_handler(
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
         OodReplyType::Redirect(u) => {
             println!("requested redir");
+            drop(session_guard); // V IMPORTANT! Else will dead-lock
             Ok(u.redirect(sessions).await?) // hallelujah - so, so, so much effort is underlying this simple thing!
         }
         OodReplyType::Finished => return Ok(warp::reply().into_response()),

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use tokio::sync::Mutex;
-use warp::{Filter, filters::BoxedFilter};
+use warp::Filter;
 
 use crate::server::{
     OodServer, OodSessionContainer,
@@ -47,7 +47,10 @@ impl OodServerBuilder<EmptyRoute> {
     }
 }
 
-impl OodServerBuilder<BoxedFilter<(warp::reply::Response,)>> {
+impl<R> OodServerBuilder<R>
+where
+    R: Filter<Extract = (warp::reply::Response,), Error = warp::Rejection> + Clone,
+{
     pub fn add_route<P>(
         self,
         p: P,
@@ -92,5 +95,5 @@ pub fn new_session_path<P: OodPage>(
     para_handler
         .and(warp::any().map(move || page.clone()))
         .and(warp::any().map(move || sessions.clone()))
-        .and_then(new_session::<P>)
+        .and_then(new_session::<P::Para, P::PageSession>)
 }

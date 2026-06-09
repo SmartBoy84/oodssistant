@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::server::{
-    handlers::{get_session_cache, persistent_session},
+    handlers::{get_session_cache, session_handler},
     interface::OodReplyType,
 };
 use thiserror::Error;
@@ -131,7 +131,7 @@ impl OodServer {
                     warp::body::content_length_limit(JSON_MAX_LENGTH)
                         .and(warp::body::json::<serde_json::Value>().map(Some)),
                 )
-                .and_then(persistent_session);
+                .and_then(session_handler);
 
             get_session_route.or(post_session_route)
         };

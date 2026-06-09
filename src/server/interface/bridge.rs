@@ -5,7 +5,8 @@ use std::marker::PhantomData;
 use tokio::sync::mpsc;
 
 use crate::server::interface::{
-    OodAction, OodAppErr, OodReply, OodReplyType, OodRes, page::OodPage,
+    OodAction, OodAppErr, OodReply, OodReplyType, OodRes,
+    page::{OodPagePara, OodPageSession},
     redirect::IntoOodInternalPayload,
 };
 
@@ -71,25 +72,16 @@ impl OodBridge {
         r
     }
 
-    pub async fn redirect<P>(self, s: P::PageSession, p: P::Para) -> OodFinished
+    pub async fn redirect<P: OodPagePara, S: OodPageSession<P>>(self, s: S, p: P) -> OodFinished
     where
-        P: OodPage + 'static,
+        S: 'static,
+        P: 'static,
     {
-        /*
-            very, very, very cool! since my application is constrained to 1) /para/para/para -> complex URLs, 2) /session/{session id}
-            redirection just starts a new task then sends the required data over (no url redirection)
-            BUT, this is NOT a problem because if this a one-shot then it's done after this anyways
-            if it's a multi-shot process then it will be "simplified" into one session -> nowhere do you need to remember parameters!
-            "parameters" are all passed within the program
-
-            this allows for a pretty cool application: you can have pages that are only accessible through another page (not an actual route)
-        */
+        /* this allows for a pretty cool application: you can have pages that are only accessible through another page (not an actual route) */
 
         // consume the bridge because this sessions is DONE DOUGH!
         self.out_tx
-            .send(OodReplyType::Redirect(Box::new(P::new_internal_payload(
-                s, p,
-            ))))
+            .send(OodReplyType::Redirect(Box::new(s.into_internal_payload(p))))
             .await
             .expect("channel closed");
 

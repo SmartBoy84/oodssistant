@@ -1,21 +1,15 @@
-use async_trait::async_trait;
 use tokio::sync::mpsc;
-use uuid::Uuid;
-use warp::{Filter, filters::BoxedFilter};
+use warp::Filter;
 
-use crate::server::{
-    OodSessionContainer,
-    handlers::new_session,
-    interface::{
-        OodAppErr, OodReplyType,
-        bridge::{OodBridge, OodFinished},
-    },
+use crate::server::interface::{
+    OodAppErr, OodReplyType,
+    bridge::{OodBridge, OodFinished},
 };
 
 pub mod template;
 
 // structs containing parameters picked up from custom path handlng
-pub trait OodPagePara {}
+pub trait OodPagePara: Send {}
 impl OodPagePara for () {}
 
 // optimisation - so that I don't have to clone the whole thing!

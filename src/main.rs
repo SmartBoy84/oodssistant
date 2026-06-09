@@ -3,7 +3,7 @@ use std::{net::SocketAddr, str::FromStr};
 use tokio::sync::mpsc;
 
 use crate::{
-    bark::builder::BarkClientBuilder, brain::pages::Homepage, gcal::GoogleCalendar,
+    bark::builder::BarkClientBuilder, brain::pages::{Homepage, Subpage1}, gcal::GoogleCalendar,
     server::builder::OodServerBuilder,
 };
 
@@ -60,6 +60,7 @@ async fn main() {
 
     let server = OodServerBuilder::new(SocketAddr::from_str(OOD_SERVER_URI).unwrap())
         .add_route(Homepage::new(list_tx))
+        .add_route(Subpage1)
         .start_server();
 
     let mut names = vec![];

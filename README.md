@@ -11,10 +11,11 @@ By far my most complex project yet. It includes two API libraries (Gcal -> OAuth
     - [x] Firstly, is basic page functionality working?
         - I.e., all the ood actions (button, text input, timer, external url)  
     - [x] Can you access external state?
-    - [x] ~~Is one-shot working?~~ Abandoned, don't need it + way too complex
-    - 1) dynamic pages (e.g., pages with same handler but different URLs), 
-    - 2) custom query parameters (e.g., page wiht custom handler), 
-    - 3) static page
-    - 4) pages only accessible through another page
-    - 5) Test same page but parameter obtained differently (disconnect between OodSession and ParaHandler)
-    - 6) test redirect cache persistence
+    - [ ] ~~Is one-shot working?~~ Abandoned, don't need it + way too complex
+    - [x] Is redirect working? 
+    - [ ] dynamic pages (e.g., pages with same handler but different URLs), 
+    - [ ] custom query parameters (e.g., page wiht custom handler), 
+    - [ ] static page
+    - [ ] pages only accessible through another page
+    - [ ] Test same page but parameter obtained differently (disconnect between OodSession and ParaHandler)
+    - [ ] test redirect cache persistence
