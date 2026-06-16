@@ -4,7 +4,7 @@ it would clone it but the lifetimes became hellish to manage (mentally and in pr
 -> especially when I had to use #[async_trait] so I opted to just clone everywhere!
 */
 
-use std::{fmt::Display, ops::Deref, str::FromStr};
+use std::{borrow::Cow, fmt::Display, ops::Deref, str::FromStr};
 
 use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
@@ -16,7 +16,7 @@ use warp::reply::Reply;
 use crate::server::{
     OodReqErr, OodSession, OodSessionContainer, SESSION_PART,
     interface::{
-        OodReplyType,
+        ExternalRedirectType, OodReplyType,
         page::{IsOodSessionPara, OodPagePara, OodPageSession},
     },
 };
@@ -163,9 +163,14 @@ pub async fn session_handler(
         OodReplyType::Finished => return Ok(warp::reply().into_response()),
         OodReplyType::Error(e) => return Err(warp::reject::custom(OodReqErr::BackendErr(e))),
         OodReplyType::ExternalRedirect(u) => {
+            let u = match u {
+                ExternalRedirectType::Session(s_id) => {
+                    Cow::Owned(format!("/{}/{}", SESSION_PART, s_id))
+                }
+                ExternalRedirectType::Uri(u) => u,
+            };
             return Ok(warp::redirect::see_other(
-                warp::http::Uri::from_str(&format!("/{}/{}", SESSION_PART, u))
-                    .expect("bad external redir url?"),
+                warp::http::Uri::from_str(&u).expect("bad external redir url?"),
             )
             .into_response());
         }

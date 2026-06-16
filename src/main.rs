@@ -1,6 +1,11 @@
 use std::{net::SocketAddr, str::FromStr};
 
-use crate::server::{builder::OodServerBuilder, interface::page::basic::OodStatic};
+use crate::{
+    bark::builder::BarkClientBuilder,
+    brain::Ood,
+    gcal::GoogleCalendar,
+    server::{builder::OodServerBuilder, interface::page::basic::OodStatic},
+};
 
 mod bark;
 mod brain;
@@ -20,9 +25,10 @@ const GOOGLE_CLIENT_SECRET: &str = "GOOGLE_CLIENT_SECRET";
 const GOOGLE_MY_REFRESH_TOKEN: &str = "GOOGLE_MY_REFRESH_TOKEN";
 
 const GOOGLE_REDIRECT_URI: &str = "127.0.0.1:3001";
-const OOD_SERVER_URI: &str = "127.0.0.1:3002";
+const OOD_SERVER_URI: &str = "192.168.0.105:3002";
 
 const OOD_SHORTCUT_NAME: &str = "ood";
+const OOD_CALENDAR_NAME: &str = "Ood";
 
 #[tokio::main]
 async fn main() {
@@ -42,20 +48,23 @@ async fn main() {
         }
     }
 
-    // let mut gcal = GoogleCalendar::builder(
-    //     google_client_id,
-    //     google_client_secret,
-    //     SocketAddr::from_str(GOOGLE_REDIRECT_URI).unwrap(),
-    // )
-    // .login(google_my_refresh_token)
-    // .await
-    // .unwrap();
+    let gcal = GoogleCalendar::builder(
+        google_client_id,
+        google_client_secret,
+        SocketAddr::from_str(GOOGLE_REDIRECT_URI).unwrap(),
+    )
+    .login(google_my_refresh_token)
+    .await
+    .unwrap();
 
-    // let bark = BarkClientBuilder::new(bark_key).build();
+    let bark = BarkClientBuilder::new(bark_key).build();
 
-    // let server = OodServerBuilder::new(SocketAddr::from_str(OOD_SERVER_URI).unwrap())
-    //     .start_server()
-    //     .await_server()
-    //     .await
-    //     .unwrap();
+    let server = OodServerBuilder::new(SocketAddr::from_str(OOD_SERVER_URI).unwrap());
+
+    Ood::new(gcal, bark, server, OOD_CALENDAR_NAME)
+        .await
+        .unwrap()
+        .run_me()
+        .await
+        .unwrap();
 }

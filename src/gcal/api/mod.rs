@@ -1,19 +1,28 @@
 use std::borrow::Cow;
 
 use serde::Deserialize;
+use serde_with::DeserializeFromStr;
+use strum::{Display, EnumString, VariantNames};
 
 use crate::gcal::api::error::GCalApiError;
 
-pub mod colors;
 pub mod endpoints;
 pub mod error;
 pub mod request;
 
-pub const COLOR_GREEN_ID: &str = "2"; // "sage" - light green
-pub const COLOR_BLUE_ID: &str = "7"; // "peacock" - light blue
-pub const COLOR_RED_ID: &str = "6"; // "tangerine" - light red
-pub const COLOR_PURPLE_ID: &str = "3"; // "grape" - dark purple
-pub const COLOR_YELLOW_ID: &str = "5"; // "banana" - yellow
+#[derive(Debug, Display, VariantNames, DeserializeFromStr, EnumString, PartialEq, Eq, Clone)]
+pub enum EventColour {
+    #[strum(serialize = "2")]
+    Green, // "sage" - light green
+    #[strum(serialize = "7")]
+    Blue, // "peacock" - light blue
+    #[strum(serialize = "6")]
+    Red, // "tangerine" - light red
+    #[strum(serialize = "3")]
+    Purple, // "grape" - dark purple
+    #[strum(serialize = "5")]
+    Yellow, // "banana" - yellow
+}
 
 #[bon_macro::bon_config]
 pub struct GCalConfig<'a> {

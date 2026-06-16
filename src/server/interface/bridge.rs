@@ -7,9 +7,7 @@ use tokio::sync::mpsc;
 use crate::server::{
     handlers::SessionId,
     interface::{
-        OodAction, OodAppErr, OodReply, OodReplyType, OodRes,
-        page::{OodPagePara, OodPageSession},
-        redirect::IntoOodInternalPayload,
+        ExternalRedirectType, OodAction, OodAppErr, OodReply, OodReplyType, OodRes, page::{OodPagePara, OodPageSession}, redirect::IntoOodInternalPayload
     },
 };
 
@@ -75,9 +73,9 @@ impl OodBridge {
         r
     }
 
-    pub async fn external_redirect(self, s_id: SessionId) -> OodFinished {
+    pub async fn external_redirect(self, redir: ExternalRedirectType) -> OodFinished {
         self.out_tx
-            .send(OodReplyType::ExternalRedirect(s_id))
+            .send(OodReplyType::ExternalRedirect(redir))
             .await
             .expect("channel closed");
         OodFinished::new()

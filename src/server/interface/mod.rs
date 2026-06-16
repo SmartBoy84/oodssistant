@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -15,7 +15,12 @@ pub enum OodReplyType {
     Error(String),              // outside doesn't need to know error type exactly
     Finished,
     InternalRedirect(Box<dyn OodInternalRedirect>),
-    ExternalRedirect(SessionId),
+    ExternalRedirect(ExternalRedirectType),
+}
+
+pub enum ExternalRedirectType {
+    Session(SessionId),
+    Uri(Cow<'static, str>),
 }
 
 #[derive(Debug, Error)]

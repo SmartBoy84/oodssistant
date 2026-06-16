@@ -22,9 +22,9 @@ pub struct ListRes<T> {
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct CalDateTime {
-    date_time: chrono::DateTime<Utc>,
-    timezone: Option<String>, // maybe needed
-    date: Option<chrono::NaiveDate>, // for full-day events
+    pub date_time: chrono::DateTime<Utc>,
+    pub timezone: Option<String>, // maybe needed
+    pub date: Option<chrono::NaiveDate>, // for full-day events
 }
 
 impl From<DateTime<Utc>> for CalDateTime {

@@ -14,7 +14,7 @@ use crate::gcal::{
             calendar_list::{CalendarListGet, CalendarListPara, CalendarRes},
             colors::{ColorsGet, ColorsRes},
             events::{
-                EventAdd, EventDelete, EventPayload, EventRes, EventsListGet, EventsListGetPara
+                EventAdd, EventDelete, EventPayload, EventRes, EventsListGet, EventsListGetPara, OrderBy
             },
         },
     },
@@ -91,6 +91,7 @@ impl<C: ApiHttpClient + AGet + Sync> GoogleCalendar<C> {
                 items,
                 ..
             } = res;
+
             if let Some(entry) = items.into_iter().find(|e| e.summary == name) {
                 return Ok(entry);
             } else if let Some(next_page) = next_page_token {
@@ -107,10 +108,12 @@ impl<C: ApiHttpClient + AGet + Sync> GoogleCalendar<C> {
         calendar_id: &str,
         time_min: DateTime<Utc>,
         time_max: DateTime<Utc>,
+        order_by: OrderBy
     ) -> Result<Vec<EventRes>, GCalErr<C>> {
         let mut para = EventsListGetPara::builder()
             .time_min(time_min)
             .time_max(time_max)
+            .order_by(order_by)
             .build();
 
         let mut events = vec![];

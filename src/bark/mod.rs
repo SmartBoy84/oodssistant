@@ -1,7 +1,5 @@
 use restman_rs::{
-    APost, ApiBackendError, ApiHttpClient,
-    client::async_client::ApiClient,
-    request::{ApiPayload, ApiRequest},
+    APost, ApiBackendError, ApiHttpClient, backends::reqwest::ReqwestApiHttpClient, client::async_client::ApiClient, request::{ApiPayload, ApiRequest}
 };
 use thiserror::Error;
 
@@ -16,19 +14,20 @@ pub mod builder;
 pub mod client;
 pub mod payload;
 
-#[derive(Error, Debug)]
-pub enum BarkError<C: ApiHttpClient> {
+#[derive(Debug, Error)]
+pub enum BarkError<C: ApiHttpClient = ReqwestApiHttpClient> {
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
 
     #[error(transparent)]
     ApiBackendError(#[from] ApiBackendError<C>),
 
+    #[error("bark api error: code={}, message={}", .0.code, .0.message)]
     BarkApiError(#[allow(unused)] BarkRes),
 }
 
 // Obtain using BarkClientBuilder
-pub struct BarkClient<C: ApiHttpClient> {
+pub struct BarkClient<C: ApiHttpClient = ReqwestApiHttpClient> {
     inner: BarkClientInner<C>,
     req: ApiRequest<BarkRequest>,
 }

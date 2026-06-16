@@ -5,18 +5,17 @@ use restman_rs::{
     request::{QueryParameters, QueryPayload},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::{serde_as, skip_serializing_none};
 
 use crate::gcal::{
     GCalServer,
     api::{
-        GCalApiRes,
-        endpoints::{CalDateTime, ListRes},
-        request::{EventsPart, EventsPartWithId},
+        EventColour, GCalApiRes, endpoints::{CalDateTime, ListRes}, request::{EventsPart, EventsPartWithId}
     },
 };
 
 // used a lot of Option<> here to be conservative and avoid crashing
+#[serde_as]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct EventRes {
@@ -26,13 +25,14 @@ pub struct EventRes {
     pub summary: Option<String>, // i.e., name
     pub description: Option<String>,
     pub start: Option<CalDateTime>,
+    pub color: EventColour,
     pub end: Option<CalDateTime>,
     pub end_time_unspecified: Option<bool>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-enum OrderBy {
+pub enum OrderBy {
     StartTime,
     Updated, // by in ascending order, by modification time
 }
@@ -45,8 +45,7 @@ pub struct EventsListGetPara {
     time_min: Option<chrono::DateTime<Utc>>,
     // #[builder(default = 2500)] // max is 2500 as per docs
     max_result: Option<usize>,
-    #[builder(default = OrderBy::StartTime)]
-    // default is a unspecified, but stable order - I would prefer start time
+    // default is a unspecified, but stable order - in my app order matters always so make it non-optional to signify this
     order_by: OrderBy, // several others but these were the important ones (refer to https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/list)
     page_token: Option<String>, // for multi-page results
     show_deleted: Option<bool>,

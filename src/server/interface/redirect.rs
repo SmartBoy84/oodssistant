@@ -34,10 +34,6 @@ pub trait OodInternalRedirect: Send {
     ) -> Result<warp::reply::Response, warp::reject::Rejection>;
 }
 
-/*
-Remember; IsOneShot and IsSession have different implementations solely because I don't want SessionContainer to be copied uncessarily
-for IsOneShot (via the filter)
-*/
 #[async_trait]
 impl<P: OodPagePara + Send, S: OodPageSession<P>> OodInternalRedirect for OodInternalPayload<S, P> {
     async fn redirect(
@@ -49,7 +45,7 @@ impl<P: OodPagePara + Send, S: OodPageSession<P>> OodInternalRedirect for OodInt
         -> each page has its own session id
          */
         let Self { s, p } = *self;
-        new_session::<P, S>(p, s, sessions).await
+        new_session(p, s, sessions).await
         // she's a'beautiful ma! this took so long to figure out but clean af right?!
     }
 }

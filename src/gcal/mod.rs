@@ -20,7 +20,7 @@ const SCOPES: [&str; 1] = ["https://www.googleapis.com/auth/calendar"];
 const GCAL_ROOT: &str = "https://www.googleapis.com";
 
 #[derive(Debug, Error)]
-pub enum GCalErr<C: ApiHttpClient> {
+pub enum GCalErr<C: ApiHttpClient = ReqwestApiHttpClient> {
     #[error("auth error")]
     GoogleAuthError(#[from] GoogleAuthError),
 
@@ -37,7 +37,7 @@ pub enum GCalErr<C: ApiHttpClient> {
     PayloadParseError(#[from] serde_json::Error)
 }
 
-pub struct GoogleCalendar<C: ApiHttpClient> {
+pub struct GoogleCalendar<C: ApiHttpClient = ReqwestApiHttpClient> {
     auth: GoogleAuth,
     backend: GCalClient<C>,
 }

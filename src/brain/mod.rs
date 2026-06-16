@@ -1,32 +1,82 @@
-use std::{borrow::Cow, fmt::Display};
+use restman_rs::request::ApiPayload;
+use thiserror::Error;
+use tokio::task::JoinError;
 
-pub mod test;
+use crate::{
+    bark::{
+        BarkClient, BarkError,
+        payload::{BarkPayload, PushLevel},
+    },
+    brain::{
+        calendar::{OodCalErr, OodCalendar},
+        pages::{EventPage, Homepage, Settings},
+    },
+    gcal::GoogleCalendar,
+    server::{
+        OodServer,
+        builder::OodServerBuilder,
+        interface::page::{basic::OodStatic, para::OodPara},
+    },
+};
 
-const SHORTCUT_URI: &str = "shortcuts"; // shortcuts://
-const SHORTCUT_ACTION: &str = "run-shortcut";
-const SHORTCUT_TEXT_ACTION: &str = "text";
-const SHORTCUT_TEXT_FIELD: &str = "text";
+pub mod calendar;
+pub mod pages;
+pub mod shortcut;
 
-pub struct OodShortcut<'a> {
-    name: &'static str,
-    input: Cow<'a, str>, // other types supported, but I only need text
+const OOD_ERROR_NOTIF_GROUP: &str = "ood_error";
+
+// The Ood, at long last!
+pub struct Ood {
+    bark: BarkClient,
+    cal: OodCalendar,
+    server: OodServer,
 }
 
-impl<'a> Display for OodShortcut<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{SHORTCUT_URI}://{SHORTCUT_ACTION}?name={}&input={SHORTCUT_TEXT_ACTION}&{SHORTCUT_TEXT_FIELD}={}",
-            self.name, self.input
-        )
+#[derive(Debug, Error)]
+pub enum OodErr {
+    #[error(transparent)]
+    CalErr(#[from] OodCalErr),
+
+    #[error(transparent)]
+    BarkErr(#[from] BarkError),
+}
+
+type OodResult<T> = Result<T, OodErr>;
+
+impl Ood {
+    pub async fn new(
+        gcal: GoogleCalendar,
+        bark: BarkClient,
+        server_builder: OodServerBuilder,
+        calendar_name: &str,
+    ) -> OodResult<Self> {
+        let server = server_builder
+            .add_route(OodStatic(Homepage::new()))
+            .add_route(OodStatic(Settings))
+            .add_route(OodPara(EventPage))
+            .start_server();
+
+        let cal = OodCalendar::build_new(gcal, calendar_name).await?;
+        Ok(Self { cal, bark, server })
     }
-}
 
-impl<'a> OodShortcut<'a> {
-    fn new(name: &'static str, input: impl Into<Cow<'a, str>>) -> Self {
-        Self {
-            name,
-            input: input.into(),
-        }
+    async fn send_error(&self, err: impl Into<String>) -> OodResult<()> {
+        self.bark
+            .notify(
+                &ApiPayload::new(
+                    &BarkPayload::builder()
+                        .body(err.into())
+                        .level(PushLevel::Active)
+                        .group(OOD_ERROR_NOTIF_GROUP)
+                        .build(),
+                )
+                .map_err(|e| OodErr::BarkErr(BarkError::SerdeError(e)))?,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn run_me(self) -> Result<(), JoinError> {
+        self.server.await_server().await
     }
 }
