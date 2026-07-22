@@ -9,7 +9,7 @@ use crate::{
     },
     brain::{
         calendar::{OodCalErr, OodCalendar},
-        pages::{EventPage, Homepage, Settings},
+        pages::Homepage,
     },
     gcal::GoogleCalendar,
     server::{
@@ -28,7 +28,7 @@ const OOD_ERROR_NOTIF_GROUP: &str = "ood_error";
 // The Ood, at long last!
 pub struct Ood {
     bark: BarkClient,
-    cal: OodCalendar,
+    // cal: OodCalendar,
     server: OodServer,
 }
 
@@ -51,13 +51,13 @@ impl Ood {
         calendar_name: &str,
     ) -> OodResult<Self> {
         let server = server_builder
-            .add_route(OodStatic(Homepage::new()))
-            .add_route(OodStatic(Settings))
-            .add_route(OodPara(EventPage))
+            .add_route(OodStatic(Homepage::default()))
             .start_server();
 
-        let cal = OodCalendar::build_new(gcal, calendar_name).await?;
-        Ok(Self { cal, bark, server })
+        // let cal = OodCalendar::build_new(gcal, calendar_name).await?;
+        // Ok(Self { cal, bark, server })
+
+        Ok(Self { bark, server })
     }
 
     async fn send_error(&self, err: impl Into<String>) -> OodResult<()> {

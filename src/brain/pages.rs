@@ -1,23 +1,44 @@
-use std::sync::Arc;
+use std::{
+    str::FromStr,
+    sync::Arc,
+    time::{self, Duration},
+};
 
-use tokio::{fs, sync::Mutex};
+use strum::VariantNames;
+use tokio::{fs, sync::Mutex, time::Instant};
 
 use crate::server::interface::{
-    ExternalRedirectType, OodAction,
-    elements::{OodButtonList, OodInfo, OodOpenUri},
+    OodAction, OodActionHasNoSummary, OodActionHasSummary,
+    elements::{
+        OodButtonList, OodInfo, OodOpenUri, OodStopwatch, OodStopwatchAction, OodTextInput,
+        OodTimer, Seconds,
+    },
     page::{OodPageSession, basic::OodBasicPage, para::OodParaPage},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Homepage {
-    inner: Grocery,
+    pallets: Arc<Mutex<Vec<(String, time::Duration)>>>,
+    curr_name: Arc<Mutex<Option<String>>>,
+    current: Arc<Mutex<Option<tokio::time::Duration>>>,
+    running: Arc<Mutex<Option<tokio::time::Instant>>>,
 }
 
-impl Homepage {
-    pub fn new() -> Self {
-        Self {
-            inner: Grocery::new(),
-        }
+fn format_duration(d: &tokio::time::Duration) -> String {
+    let secs = d.as_secs();
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
+}
+
+fn option_dur_add(running: Option<Instant>, past_total: Option<Duration>) -> Duration {
+    let curr_total = running.map(|t| tokio::time::Instant::now() - t);
+    match (curr_total, past_total) {
+        (Some(t), None) | (None, Some(t)) => t,
+        (Some(a), Some(b)) => a + b,
+        _ => unreachable!(), // finish would not be visible otherwise
     }
 }
 
@@ -29,183 +50,120 @@ impl OodPageSession<()> for Homepage {
     type SessionPara = ();
     async fn start_session(
         self,
-        b: crate::server::interface::bridge::OodBridge,
+        mut b: crate::server::interface::bridge::OodBridge,
         _: (),
         _: (),
     ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::OodAppErr>
     {
-        return Ok(b.internal_redirect(self.inner, ()).await);
-
         loop {
-            let options = [
-                "Current event",
-                "Upcoming events",
-                "Past events",
-                "Sync with calendar",
-                "Settings",
-            ];
-
+            let mut options = vec![];
+            let mut menu_title = None;
+            if let Some(name) = self.curr_name.lock().await.as_ref().map(|s| s.clone()) {
+                let total = option_dur_add(*self.running.lock().await, *self.current.lock().await);
+                menu_title = Some(format!("{name} - {}", format_duration(&total)));
+                if *&self.running.lock().await.is_some() {
+                    options.push("Pause");
+                    options.push("Finish");
+                } else if self.current.lock().await.is_some() {
+                    options.push("Resume");
+                    options.push("Finish")
+                }
+            } else {
+                options.push("New")
+            }
+            if self.pallets.lock().await.len() > 0 {
+                options.push("Past pallets");
+            }
             match b
-                .cf(&OodButtonList::new("Homepage", &options))
+                .cf(&OodButtonList::new(
+                    menu_title.as_deref().unwrap_or("Menu"),
+                    &options,
+                ))
                 .await?
                 .as_str()
             {
-                "Settings" => {
-                    return Ok(b
-                        .external_redirect(ExternalRedirectType::Uri(Settings::URI.into()))
-                        .await);
+                "Past pallets" => {
+                    b.cf(&OodInfo::new(
+                        "Past pallets",
+                        &self
+                            .pallets
+                            .lock()
+                            .await
+                            .iter()
+                            .map(|(n, t)| format!("{n} - {}", format_duration(t)))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    ))
+                    .await?;
                 }
-                _ => {
-                    b.cf(&OodInfo::new("Unsupported", "")).await?;
+                "Pause" => {
+                    let dur = tokio::time::Instant::now()
+                        - self.running.lock().await.take().expect("not running?");
+                    let mut guard = self.current.lock().await;
+                    if let Some(t) = guard.as_mut() {
+                        *t += dur;
+                    } else {
+                        *guard = Some(dur);
+                    }
+                    b.cf(&OodStopwatch::new(&OodStopwatchAction::Stop)).await?;
+                    b.cf(&OodInfo::new(
+                        &format!(
+                            "Paused: {}",
+                            self.curr_name
+                                .lock()
+                                .await
+                                .as_ref()
+                                .expect("no name?")
+                                .clone()
+                        ),
+                        "",
+                    ))
+                    .await?;
                 }
-            }
-        }
-    }
-}
+                "Finish" => {
+                    let total = option_dur_add(
+                        self.running.lock().await.take(),
+                        self.current.lock().await.take(),
+                    );
+                    let name = self.curr_name.lock().await.take().expect("no name?");
+                    self.pallets.lock().await.push((name.clone(), total));
 
-#[derive(Clone, Default)]
-pub struct Grocery {
-    todo: Arc<Mutex<Vec<String>>>,
-    finished: Arc<Mutex<Vec<String>>>,
-}
-
-impl Grocery {
-    fn new() -> Self {
-        let d = std::fs::read_to_string("grocery.txt")
-            .unwrap()
-            .split('\n')
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        Self {
-            todo: Arc::new(Mutex::new(d)),
-            ..Default::default()
-        }
-    }
-}
-
-impl OodBasicPage for Grocery {
-    const URI: &str = "/grocery";
-}
-
-impl OodPageSession<()> for Grocery {
-    type SessionPara = ();
-    async fn start_session(
-        self,
-        mut b: crate::server::interface::bridge::OodBridge,
-        _: (),
-        _: (),
-    ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::OodAppErr>
-    {
-        let mut choice = None;
-        loop {
-            let Some(sel_choice) = choice.as_ref() else {
-                choice = Some(
-                    b.cf(&OodButtonList::new("List", &["Todo", "Finished"]))
-                        .await?,
-                );
-                continue;
-            };
-
-            match sel_choice.as_ref() {
-                "Back" => choice = None,
-                "Todo" => {
-                    if self.todo.lock().await.len() == 0 {
-                        b.cf(&OodInfo::new("Oops", "Nothing in here!")).await?;
-                        choice = None;
-                        continue;
-                    }
-                    let mut list = vec!["Back".to_string()];
-                    list.extend_from_slice(&self.todo.lock().await.clone()[..]);
-                    let el = b.cf(&OodButtonList::new("Todo", &list)).await?;
-                    if el == "Back" {
-                        choice = None;
-                        continue;
-                    }
-                    println!("Selected {el}");
-                    let idx = self
-                        .todo
-                        .lock()
-                        .await
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, s)| (s == &el).then_some(i))
-                        .unwrap();
-                    let rem = self.todo.lock().await.remove(idx);
-                    self.finished.lock().await.push(rem);
+                    b.cf(&OodInfo::new(
+                        &format!("Ended: {name}"),
+                        &format!("Took: {}", format_duration(&total)),
+                    ))
+                    .await?;
+                    b.cf(&OodStopwatch::new(&OodStopwatchAction::Reset)).await?;
                 }
-                "Finished" => {
-                    if self.finished.lock().await.len() == 0 {
-                        b.cf(&OodInfo::new("Oops", "Nothing in here!")).await?;
-                        choice = None;
-                        continue;
-                    }
-                    let mut list = vec!["Back".to_string()];
-                    list.extend_from_slice(&self.finished.lock().await.clone()[..]);
-                    let el = b.cf(&OodButtonList::new("Finished", &list)).await?;
-                    if el == "Back" {
-                        choice = None;
-                        continue;
-                    }
-                    println!("Selected {el}");
-                    let idx = self
-                        .finished
-                        .lock()
-                        .await
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, s)| (s == &el).then_some(i))
-                        .unwrap();
-                    let rem = self.finished.lock().await.remove(idx);
-                    self.todo.lock().await.push(rem);
+                "New" => {
+                    let name = b.cf(&OodTextInput::new("Pallet name?", "")).await?;
+                    match b
+                        .cf(&OodButtonList::new(
+                            &format!("Start {name}?"),
+                            &["Yes", "No"],
+                        ))
+                        .await?
+                        .as_str()
+                    {
+                        "Yes" => {
+                            *self.curr_name.lock().await = Some(name.clone());
+                            *self.running.lock().await = Some(tokio::time::Instant::now());
+                            b.cf(&OodStopwatch::new(&OodStopwatchAction::Reset)).await?;
+                            b.cf(&OodStopwatch::new(&OodStopwatchAction::Start)).await?;
+                            b.cf(&OodInfo::new(&format!("Started: {name}"), "")).await?;
+                        }
+                        "No" => continue,
+                        _ => unreachable!(),
+                    };
+                }
+                "Resume" => {
+                    *self.running.lock().await = Some(tokio::time::Instant::now());
+                    b.cf(&OodStopwatch::new(&OodStopwatchAction::Start)).await?;
                 }
                 _ => unreachable!(),
-            };
+            }
+            break; // break by default
         }
-        Ok(b.finished().await)
-    }
-}
-
-#[derive(Clone)]
-pub struct Settings;
-impl OodBasicPage for Settings {
-    const URI: &str = "/settings";
-}
-impl OodPageSession<()> for Settings {
-    type SessionPara = ();
-    async fn start_session(
-        self,
-        mut b: crate::server::interface::bridge::OodBridge,
-        _: (),
-        _: (),
-    ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::OodAppErr>
-    {
-        b.cf(&OodInfo::new("Settings", "Welcome to settings"))
-            .await?;
-        Ok(b.finished().await)
-    }
-}
-
-// general page to manage an event
-#[derive(Clone)]
-pub struct EventPage;
-
-impl OodParaPage for EventPage {
-    const URI: &str = "/event";
-    type Para = String; // event id
-}
-
-impl OodPageSession<String> for EventPage {
-    type SessionPara = ();
-    async fn start_session(
-        self,
-        b: crate::server::interface::bridge::OodBridge,
-        p: String,
-        s: (),
-    ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::OodAppErr>
-    {
-        // managing event `p`
-
-        let options = &["Details", "Add note"];
         Ok(b.finished().await)
     }
 }

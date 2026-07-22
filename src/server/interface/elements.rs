@@ -4,8 +4,10 @@ use serde::{
     Deserialize, Serialize,
     de::{self, Visitor},
 };
+use serde_with::DeserializeFromStr;
+use strum::{EnumString, VariantNames};
 
-use crate::server::interface::OodAction;
+use crate::server::interface::{HasSummary, NoSummary, OodAction};
 
 #[derive(Debug)]
 pub enum EmptyResponse {
@@ -20,6 +22,7 @@ impl OodAction for OodOpenUri {
     const NAME: &'static str = "uri";
     type Item = str;
     type Reply = EmptyResponse; // iOS shortcuts won't forget this, but don't leave me hanging on other things!!
+    type ActionType = NoSummary;
 }
 
 pub struct OodInfo;
@@ -27,6 +30,7 @@ impl OodAction for OodInfo {
     const NAME: &'static str = "info";
     type Item = str; // interesting! we do this here, because we always use &Item (with &str it would become &&str)
     type Reply = EmptyResponse;
+    type ActionType = HasSummary;
 }
 
 pub struct OodButtonList<T>(PhantomData<T>);
@@ -38,6 +42,7 @@ where
     const NAME: &'static str = "button";
     type Item = [T]; // (name, return value)
     type Reply = String; // shortcut limitation/simplification
+    type ActionType = HasSummary;
 }
 pub struct OodTimer; // start a timer on the device
 #[derive(Serialize)]
@@ -51,6 +56,22 @@ impl OodAction for OodTimer {
     const NAME: &'static str = "timer";
     type Item = Option<Seconds>; // None - deactivate timer
     type Reply = EmptyResponse;
+    type ActionType = NoSummary;
+}
+
+pub struct OodStopwatch; // start/stop/reset stopwatch on device
+#[derive(Debug, VariantNames, EnumString, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OodStopwatchAction {
+    Start,
+    Reset,
+    Stop,
+}
+impl OodAction for OodStopwatch {
+    const NAME: &'static str = "stopwatch";
+    type Item = OodStopwatchAction;
+    type Reply = EmptyResponse;
+    type ActionType = NoSummary;
 }
 
 pub struct OodTextInput<'a>(PhantomData<&'a str>);
@@ -59,6 +80,7 @@ impl<'a> OodAction for OodTextInput<'a> {
     const NAME: &'static str = "text_input";
     type Item = str; // default value (if editing)
     type Reply = String; // shortcut limitation/simplification
+    type ActionType = HasSummary;
 }
 
 // could match any string - but want to enforce that incoming data should be empty to not confuse users (me, myself and I!)

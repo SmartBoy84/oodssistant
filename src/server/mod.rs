@@ -1,7 +1,7 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, fmt::Display, net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use crate::server::{
-    handlers::{SessionId, get_session_cache, session_handler},
+    handlers::{get_session_cache, session_handler},
     interface::OodReplyType,
 };
 use thiserror::Error;
@@ -25,6 +25,27 @@ const JSON_MAX_LENGTH: u64 = 1024 * 16;
 
 const SESSION_PART: &str = "session";
 
+#[derive(Debug, Eq, Hash, PartialEq, Clone)]
+pub struct SessionId(String);
+
+impl From<String> for SessionId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl Deref for SessionId {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Display for SessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 type OodSessionContainer = Arc<Mutex<HashMap<SessionId, OodSession>>>;
 
 pub struct OodServer {

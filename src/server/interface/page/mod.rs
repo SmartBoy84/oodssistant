@@ -2,8 +2,7 @@ use tokio::sync::mpsc;
 use warp::Filter;
 
 use crate::server::{
-    OodSessionContainer,
-    handlers::SessionId,
+    OodSessionContainer, SessionId,
     interface::{
         OodAppErr, OodReplyType,
         bridge::{OodBridge, OodFinished},

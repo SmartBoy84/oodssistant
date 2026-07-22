@@ -1,10 +1,11 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use warp::Filter;
 
 use crate::server::{
-    OodServer, OodSessionContainer,
+    OodServer, OodSessionContainer, SessionId,
     handlers::new_session,
     interface::page::{OodPage, OodPageHandler},
 };
@@ -95,6 +96,7 @@ pub fn new_session_path<P: OodPage>(
     para_handler
         .and(warp::path::end())
         .and(warp::any().map(move || page.clone()))
+        .and(warp::any().map(|| Into::<SessionId>::into(Uuid::new_v4().to_string())))
         .and(warp::any().map(move || sessions.clone()))
         .and_then(new_session::<P::Para, P::PageSession>)
 }

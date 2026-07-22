@@ -4,19 +4,18 @@ it would clone it but the lifetimes became hellish to manage (mentally and in pr
 -> especially when I had to use #[async_trait] so I opted to just clone everywhere!
 */
 
-use std::{borrow::Cow, fmt::Display, ops::Deref, str::FromStr};
+use std::str::FromStr;
 
 use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::Instant;
-use uuid::Uuid;
 use warp::reply::Reply;
 
 use crate::server::{
-    OodReqErr, OodSession, OodSessionContainer, SESSION_PART,
+    OodReqErr, OodSession, OodSessionContainer, SessionId,
     interface::{
-        ExternalRedirectType, OodReplyType,
+        InternalRedirectType, OodReplyType,
         page::{IsOodSessionPara, OodPagePara, OodPageSession},
     },
 };
@@ -29,28 +28,6 @@ struct OodSessionPayload {
     #[serde_as(as = "DisplayFromStr")]
     session_id: SessionId,
     payload: serde_json::Value,
-}
-
-#[derive(Debug, Eq, Hash, PartialEq, Clone)]
-pub struct SessionId(String);
-
-impl From<String> for SessionId {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl Deref for SessionId {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Display for SessionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
 }
 
 impl OodSessionPayload {
@@ -69,11 +46,10 @@ new_session needs sessions because new_session -> session_handler -> Redirect ->
 pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
     p: P,
     s: S,
+    s_id: SessionId,
     sessions: OodSessionContainer,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
-    let session_id = Into::<SessionId>::into(Uuid::new_v4().to_string());
-
-    let (fut, out_rx, in_tx) = s.app_open(p, S::SessionPara::new(&session_id, &sessions));
+    let (fut, out_rx, in_tx) = s.app_open(p, S::SessionPara::new(&s_id, &sessions));
 
     let task = tokio::spawn(async {
         if let Err(e) = fut.await {
@@ -89,8 +65,8 @@ pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
         last_change: Instant::now(),
     };
 
-    let _ = sessions.lock().await.insert(session_id.clone(), session); // make persistent
-    let first_res = session_handler(session_id, sessions, None).await;
+    let _ = sessions.lock().await.insert(s_id.clone(), session); // make persistent
+    let first_res = session_handler(s_id, sessions, None).await;
 
     Ok(first_res?)
 }
@@ -155,24 +131,18 @@ pub async fn session_handler(
         }
 
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
-        OodReplyType::InternalRedirect(u) => {
-            println!("requested redir");
+        OodReplyType::Finished => Ok(warp::reply().into_response()),
+        OodReplyType::Error(e) => Err(warp::reject::custom(OodReqErr::BackendErr(e))),
+        OodReplyType::InternalRedirect(r) => {
             drop(session_guard); // V IMPORTANT! Else will dead-lock
-            Ok(u.redirect(sessions).await?) // hallelujah - so, so, so much effort is underlying this simple thing!
+            match r {
+                InternalRedirectType::NewPage(u) => Ok(u.redirect(session_id, sessions).await?), // hallelujah - so, so, so much effort is underlying this simple thing!
+                InternalRedirectType::Session(s_id) => Ok(get_session_cache(s_id, sessions).await?),
+            }
         }
-        OodReplyType::Finished => return Ok(warp::reply().into_response()),
-        OodReplyType::Error(e) => return Err(warp::reject::custom(OodReqErr::BackendErr(e))),
-        OodReplyType::ExternalRedirect(u) => {
-            let u = match u {
-                ExternalRedirectType::Session(s_id) => {
-                    Cow::Owned(format!("/{}/{}", SESSION_PART, s_id))
-                }
-                ExternalRedirectType::Uri(u) => u,
-            };
-            return Ok(warp::redirect::see_other(
-                warp::http::Uri::from_str(&u).expect("bad external redir url?"),
-            )
-            .into_response());
-        }
+        OodReplyType::ExternalRedirect(u) => Ok(warp::redirect::see_other(
+            warp::http::Uri::from_str(&u).expect("bad external redir url?"),
+        )
+        .into_response()),
     }
 }

@@ -18,6 +18,13 @@ By far my most complex project yet. It includes two API libraries (Gcal -> OAuth
     - [x] pages only accessible through another page
     - [x] test redirect cache persistence
 
+# Mutex/lock issue
+KISS - KEEP IT GOD DAYUM SIMPLE STUPID
+
+1. Create a new shortcut to get unique device ID
+2. Determine a way to store task state with ID
+3. Internal redirect should use the same ID
+
 # Examples
 ```rust
 #[derive(Clone)]

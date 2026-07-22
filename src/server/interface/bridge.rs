@@ -1,13 +1,15 @@
 // to enforce guarantees about communication (i.e., wait on in and always give an out)
 
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData};
 
 use tokio::sync::mpsc;
 
 use crate::server::{
-    handlers::SessionId,
+    SessionId,
     interface::{
-        ExternalRedirectType, OodAction, OodAppErr, OodReply, OodReplyType, OodRes, page::{OodPagePara, OodPageSession}, redirect::IntoOodInternalPayload
+        InternalRedirectType, OodAction, OodAppErr, OodReply, OodReplyType, OodRes,
+        page::{OodPagePara, OodPageSession},
+        redirect::IntoOodInternalPayload,
     },
 };
 
@@ -73,9 +75,9 @@ impl OodBridge {
         r
     }
 
-    pub async fn external_redirect(self, redir: ExternalRedirectType) -> OodFinished {
+    pub async fn external_redirect(self, uri: Cow<'static, str>) -> OodFinished {
         self.out_tx
-            .send(OodReplyType::ExternalRedirect(redir))
+            .send(OodReplyType::ExternalRedirect(uri))
             .await
             .expect("channel closed");
         OodFinished::new()
@@ -83,8 +85,7 @@ impl OodBridge {
 
     pub async fn internal_redirect<P: OodPagePara, S: OodPageSession<P>>(
         self,
-        s: S,
-        p: P,
+        r: InternalRedirectType,
     ) -> OodFinished
     where
         S: 'static,
@@ -94,9 +95,7 @@ impl OodBridge {
 
         // consume the bridge because this sessions is DONE DOUGH!
         self.out_tx
-            .send(OodReplyType::InternalRedirect(Box::new(
-                s.into_internal_payload(p),
-            )))
+            .send(OodReplyType::InternalRedirect(r))
             .await
             .expect("channel closed");
 
