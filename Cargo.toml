@@ -21,6 +21,8 @@ uuid = { version = "1.4", features = ["v4"] }
 async-trait = "0.1.89"
 strum = { version = "0.28.0", features = ["derive"] }
 strum_macros = "0.28.0"
+anyhow = "1.0.104"
+bytes = "1.12.1"
 
 [profile.release]
 codegen-units = 1

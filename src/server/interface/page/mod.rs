@@ -14,27 +14,25 @@ pub mod para;
 
 // for structs being populated in new handler
 pub trait IsOodSessionPara {
-    fn new(session_id: &SessionId, sessions: &OodSessionContainer) -> Self;
+    fn new(session_id: &SessionId) -> Self;
 }
 
 impl IsOodSessionPara for () {
     // this is for clients that do not need session parameters (avoid redundant copying)
-    fn new(_: &SessionId, _: &OodSessionContainer) {
+    fn new(_: &SessionId) {
         ()
     }
 }
 
-// goes WITHOUT saying, do not try to search for yourself in sessions using session_id
+// this is used to get info from session creation site (currently only session id)
 pub struct OodSessionPara {
     pub session_id: SessionId,
-    pub sessions: OodSessionContainer,
 }
 impl IsOodSessionPara for OodSessionPara {
-    fn new(session_id: &SessionId, sessions: &OodSessionContainer) -> Self {
+    fn new(session_id: &SessionId) -> Self {
         // make a copy of everything so that it is accessible inside the task
         Self {
             session_id: session_id.to_owned(),
-            sessions: sessions.to_owned(),
         }
     }
 }

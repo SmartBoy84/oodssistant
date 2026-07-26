@@ -1,28 +1,28 @@
-use std::{borrow::Cow, marker::PhantomData};
+use std::{borrow::Cow, fmt::Debug, marker::PhantomData};
 
-use oauth2::http::Uri;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
-use crate::server::{SessionId, interface::redirect::OodInternalRedirect};
+use crate::server::SessionId;
 
 pub mod bridge;
 pub mod elements;
 pub mod page;
-pub mod redirect;
+pub mod serializers;
+// pub mod redirect;
 
 pub enum OodReplyType {
     Payload(serde_json::Value), // don't want to deal with cache right now...
     Error(String),              // outside doesn't need to know error type exactly
     Finished,
-    InternalRedirect(InternalRedirectType),
+    InternalRedirect(SessionId),
     ExternalRedirect(Cow<'static, str>),
 }
 
-pub enum InternalRedirectType {
-    NewPage(Box<dyn OodInternalRedirect>),
-    Session(SessionId),
-}
+// pub enum InternalRedirectType {
+//     NewPage(Box<dyn OodInternalRedirect>),
+//     Session(SessionId),
+// }
 
 #[derive(Debug, Error)]
 pub enum OodAppErr {
@@ -37,7 +37,10 @@ pub enum OodAppErr {
 }
 
 pub trait OodActionHasSummary: OodAction {
-    fn new<'a>(summary: &'a str, item: &'a Self::Item) -> OodReply<'a, Self>
+    fn new<'a>(
+        summary: &'a <Self::ActionType as OodActionType>::Summary,
+        item: &'a Self::Item,
+    ) -> OodReply<'a, Self>
     where
         Self: Sized,
     {
@@ -52,23 +55,31 @@ pub trait OodActionHasNoSummary: OodAction {
     fn new<'a>(item: &'a Self::Item) -> OodReply<'a, Self>
     where
         Self: Sized,
+        Self::ActionType: OodActionType<Summary = ()>
     {
         OodReply {
             action: Self::NAME,
-            summary: "",
+            summary: &(),
             item,
         }
     }
 }
 
-impl<T: OodAction<ActionType = HasSummary>> OodActionHasSummary for T {}
 impl<T: OodAction<ActionType = NoSummary>> OodActionHasNoSummary for T {}
 
-pub struct HasSummary;
+pub struct HasSummary<T: ?Sized>(PhantomData<T>);
 pub struct NoSummary;
-pub trait OodActionType {}
-impl OodActionType for HasSummary {}
-impl OodActionType for NoSummary {}
+pub trait OodActionType {
+    type Summary: ?Sized + Serialize + Debug;
+}
+impl<S: ?Sized + Serialize + Debug> OodActionType for HasSummary<S> {
+    type Summary = S;
+}
+impl OodActionType for NoSummary {
+    type Summary = ();
+}
+
+impl<S: ?Sized + Serialize, T: OodAction<ActionType = HasSummary<S>>> OodActionHasSummary for T {}
 
 pub trait OodAction {
     const NAME: &'static str;
@@ -87,6 +98,6 @@ pub struct OodRes<T: OodAction> {
 #[derive(Serialize, Debug)]
 pub struct OodReply<'a, T: OodAction> {
     action: &'static str,
-    summary: &'a str,
+    summary: &'a <T::ActionType as OodActionType>::Summary,
     item: &'a T::Item,
 }

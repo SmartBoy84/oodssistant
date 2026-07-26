@@ -6,11 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::server::{
     SessionId,
-    interface::{
-        InternalRedirectType, OodAction, OodAppErr, OodReply, OodReplyType, OodRes,
-        page::{OodPagePara, OodPageSession},
-        redirect::IntoOodInternalPayload,
-    },
+    interface::{OodAction, OodAppErr, OodReply, OodReplyType, OodRes},
 };
 
 // to enforce that b.finished() is called
@@ -83,19 +79,12 @@ impl OodBridge {
         OodFinished::new()
     }
 
-    pub async fn internal_redirect<P: OodPagePara, S: OodPageSession<P>>(
-        self,
-        r: InternalRedirectType,
-    ) -> OodFinished
-    where
-        S: 'static,
-        P: 'static,
-    {
+    pub async fn internal_redirect(self, s_id: &SessionId) -> OodFinished {
         /* this allows for a pretty cool application: you can have pages that are only accessible through another page (not an actual route) */
 
         // consume the bridge because this sessions is DONE DOUGH!
         self.out_tx
-            .send(OodReplyType::InternalRedirect(r))
+            .send(OodReplyType::InternalRedirect(s_id.clone()))
             .await
             .expect("channel closed");
 

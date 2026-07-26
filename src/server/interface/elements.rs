@@ -1,19 +1,46 @@
 use std::{marker::PhantomData, time::Duration};
 
-use serde::{
-    Deserialize, Serialize,
-    de::{self, Visitor},
-};
-use serde_with::DeserializeFromStr;
+use serde::{Deserialize, Serialize};
 use strum::{EnumString, VariantNames};
 
 use crate::server::interface::{HasSummary, NoSummary, OodAction};
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum OptionalResponse<T> {
+    Empty(EmptyResponse), // AYYYY, put this *first* to have "" -> EmptyString
+    Res(T),
+}
 
 #[derive(Debug)]
 pub enum EmptyResponse {
     Null,
     None,
     EmptyString,
+}
+
+#[derive(Debug)]
+#[repr(transparent)] // thus, dereferencing to &str is SAFE
+pub struct OodFilePath(pub str);
+/*
+iOS Shortcuts is so annoying - when writing it automatically adds the .txt extension but when reading it doesn't
+this is to avoid errors by statically enforcing the addition of a `.txt` on all paths
+*/
+
+pub struct OodWrite; // get unique device id (persistent)
+impl OodAction for OodWrite {
+    const NAME: &'static str = "write";
+    type Item = str; // file name
+    type Reply = EmptyResponse;
+    type ActionType = HasSummary<OodFilePath>; // file data
+}
+
+pub struct OodRead; // get unique device id (persistent)
+impl OodAction for OodRead {
+    const NAME: &'static str = "read";
+    type Item = OodFilePath; // file name
+    type Reply = OptionalResponse<String>;
+    type ActionType = NoSummary;
 }
 
 // this is **NOT** the same as b.redirect() -> that is an *internal* redirect, this action instructs the device to open this URI in whatever external application
@@ -30,7 +57,7 @@ impl OodAction for OodInfo {
     const NAME: &'static str = "info";
     type Item = str; // interesting! we do this here, because we always use &Item (with &str it would become &&str)
     type Reply = EmptyResponse;
-    type ActionType = HasSummary;
+    type ActionType = HasSummary<str>;
 }
 
 pub struct OodButtonList<T>(PhantomData<T>);
@@ -42,7 +69,7 @@ where
     const NAME: &'static str = "button";
     type Item = [T]; // (name, return value)
     type Reply = String; // shortcut limitation/simplification
-    type ActionType = HasSummary;
+    type ActionType = HasSummary<str>;
 }
 pub struct OodTimer; // start a timer on the device
 #[derive(Serialize)]
@@ -52,6 +79,7 @@ impl From<Duration> for Seconds {
         Self(value.as_secs())
     }
 }
+
 impl OodAction for OodTimer {
     const NAME: &'static str = "timer";
     type Item = Option<Seconds>; // None - deactivate timer
@@ -74,56 +102,11 @@ impl OodAction for OodStopwatch {
     type ActionType = NoSummary;
 }
 
-pub struct OodTextInput<'a>(PhantomData<&'a str>);
+pub struct OodTextInput;
 
-impl<'a> OodAction for OodTextInput<'a> {
+impl OodAction for OodTextInput {
     const NAME: &'static str = "text_input";
     type Item = str; // default value (if editing)
     type Reply = String; // shortcut limitation/simplification
-    type ActionType = HasSummary;
-}
-
-// could match any string - but want to enforce that incoming data should be empty to not confuse users (me, myself and I!)
-impl<'de> Deserialize<'de> for EmptyResponse {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct EmptyResponseVisitor;
-        impl<'de> Visitor<'de> for EmptyResponseVisitor {
-            type Value = EmptyResponse;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("null or empty string (`\"\"`)")
-            }
-            fn visit_unit<E>(self) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(EmptyResponse::Null)
-            }
-
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match v {
-                    "" => Ok(EmptyResponse::EmptyString),
-                    _ => Err(E::invalid_value(
-                        de::Unexpected::Str(v),
-                        &"an empty string or null",
-                    )),
-                }
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(EmptyResponse::None)
-            }
-        }
-
-        deserializer.deserialize_any(EmptyResponseVisitor)
-    }
+    type ActionType = HasSummary<str>;
 }

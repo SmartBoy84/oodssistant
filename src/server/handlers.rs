@@ -8,6 +8,7 @@ use std::str::FromStr;
 
 use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
+use serde_json::Value;
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::Instant;
 use warp::reply::Reply;
@@ -15,7 +16,7 @@ use warp::reply::Reply;
 use crate::server::{
     OodReqErr, OodSession, OodSessionContainer, SessionId,
     interface::{
-        InternalRedirectType, OodReplyType,
+        OodReplyType,
         page::{IsOodSessionPara, OodPagePara, OodPageSession},
     },
 };
@@ -49,13 +50,19 @@ pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
     s_id: SessionId,
     sessions: OodSessionContainer,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
-    let (fut, out_rx, in_tx) = s.app_open(p, S::SessionPara::new(&s_id, &sessions));
+    let (fut, out_rx, in_tx) = s.app_open(p, S::SessionPara::new(&s_id));
 
-    let task = tokio::spawn(async {
-        if let Err(e) = fut.await {
-            println!("{e:?}")
-        }
-    });
+    let task = {
+        let s_id = s_id.clone();
+        let sessions = sessions.clone();
+        tokio::spawn(async move {
+            if let Err(e) = fut.await {
+                println!("{e:?}")
+            }
+            println!("Task ended - removing");
+            sessions.lock().await.remove(&s_id); // task finished, remove itself
+        })
+    };
 
     let session = OodSession {
         rx: out_rx,
@@ -102,7 +109,7 @@ pub async fn get_session_cache(
 pub async fn session_handler(
     session_id: SessionId,
     sessions: OodSessionContainer,
-    body: Option<serde_json::Value>,
+    body: Option<Value>,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
     let mut session_guard = sessions.lock().await;
 
@@ -133,12 +140,13 @@ pub async fn session_handler(
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
         OodReplyType::Finished => Ok(warp::reply().into_response()),
         OodReplyType::Error(e) => Err(warp::reject::custom(OodReqErr::BackendErr(e))),
-        OodReplyType::InternalRedirect(r) => {
+        OodReplyType::InternalRedirect(s_id) => {
             drop(session_guard); // V IMPORTANT! Else will dead-lock
-            match r {
-                InternalRedirectType::NewPage(u) => Ok(u.redirect(session_id, sessions).await?), // hallelujah - so, so, so much effort is underlying this simple thing!
-                InternalRedirectType::Session(s_id) => Ok(get_session_cache(s_id, sessions).await?),
-            }
+            Ok(get_session_cache(s_id, sessions).await?)
+            // match r {
+            //     InternalRedirectType::NewPage(u) => Ok(u.redirect(session_id, sessions).await?), // hallelujah - so, so, so much effort is underlying this simple thing!
+            //     InternalRedirectType::Session(s_id) => Ok(get_session_cache(s_id, sessions).await?),
+            // }
         }
         OodReplyType::ExternalRedirect(u) => Ok(warp::redirect::see_other(
             warp::http::Uri::from_str(&u).expect("bad external redir url?"),
