@@ -2,9 +2,9 @@ use tokio::sync::mpsc;
 use warp::Filter;
 
 use crate::server::{
-    OodSessionContainer, SessionId,
+    SessionId,
     interface::{
-        OodAppErr, OodReplyType,
+        ExtOodAppErr, OodPayload, OodReplyType,
         bridge::{OodBridge, OodFinished},
     },
 };
@@ -71,7 +71,7 @@ where
 
 // note; can't impose ParaHandler trait here as that would create a cycle!
 pub trait OodPageSession<P: OodPagePara>: Clone + Send {
-    type SessionPara: IsOodSessionPara;
+    type SessionPara: IsOodSessionPara + Send;
 
     // remember 'static just means is *can* remain alive for the rest of the program's duration - of course, owner can drop it earlier (not a leak!)
     fn start_session(
@@ -79,20 +79,21 @@ pub trait OodPageSession<P: OodPagePara>: Clone + Send {
         b: OodBridge,
         p: P,
         s: Self::SessionPara,
-    ) -> impl std::future::Future<Output = Result<OodFinished, OodAppErr>> + Send + 'static;
+    ) -> impl std::future::Future<Output = Result<OodFinished, ExtOodAppErr>> + Send + 'static;
 
     fn app_open(
         self,
         p: P,
         s: Self::SessionPara,
     ) -> (
-        impl Future<Output = Result<OodFinished, OodAppErr>> + Send + 'static,
+        impl Future<Output = Result<OodFinished, ExtOodAppErr>> + Send + 'static,
         mpsc::Receiver<OodReplyType>,
-        mpsc::Sender<serde_json::Value>,
+        mpsc::Sender<OodPayload>,
     ) {
         let (out_tx, out_rx) = mpsc::channel(1);
         let (in_tx, in_rx) = mpsc::channel(1);
         let fut = self.start_session(OodBridge::new(out_tx, in_rx), p, s);
+
         (fut, out_rx, in_tx)
     }
 }

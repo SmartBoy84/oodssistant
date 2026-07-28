@@ -139,7 +139,7 @@ pub async fn session_handler(
 
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
         OodReplyType::Finished => Ok(warp::reply().into_response()),
-        OodReplyType::Error(e) => Err(warp::reject::custom(OodReqErr::BackendErr(e))),
+        OodReplyType::Err(e) => Err(warp::reject::custom(OodReqErr::BackendErr(e))),
         OodReplyType::InternalRedirect(s_id) => {
             drop(session_guard); // V IMPORTANT! Else will dead-lock
             Ok(get_session_cache(s_id, sessions).await?)

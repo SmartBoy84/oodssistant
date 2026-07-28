@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::server::{
     SessionId,
-    interface::{OodAction, OodAppErr, OodReply, OodReplyType, OodRes},
+    interface::{IntOodAppErr, OodAction, OodPayload, OodPayloadParser, OodReply, OodReplyType},
 };
 
 // to enforce that b.finished() is called
@@ -21,81 +21,63 @@ impl OodFinished {
 
 pub struct OodBridge {
     out_tx: mpsc::Sender<OodReplyType>,
-    in_rx: mpsc::Receiver<serde_json::Value>,
+    in_rx: mpsc::Receiver<OodPayload>,
 }
 
 impl OodBridge {
-    pub fn new(
-        out_tx: mpsc::Sender<OodReplyType>,
-        in_rx: mpsc::Receiver<serde_json::Value>,
-    ) -> Self {
+    pub fn new(out_tx: mpsc::Sender<OodReplyType>, in_rx: mpsc::Receiver<OodPayload>) -> Self {
         Self { out_tx, in_rx }
     }
 
-    // all subsequent comms are: out -> in
-    async fn communicate<'a, A: OodAction>(
+    pub async fn err_wrapper<T, A: OodAction>(
         &mut self,
-        payload: &OodReply<'a, A>,
-    ) -> Result<A::Reply, OodAppErr> {
-        self.out_tx
-            .send(OodReplyType::Payload(
-                serde_json::to_string(&payload)
-                    .map_err(|e| OodAppErr::InternalParseError(e))?
-                    .into(),
-            ))
-            .await
-            .expect("channel closed"); // in this land of sessions - panic is fine!
-
-        serde_json::from_value::<OodRes<A>>(
-            self.in_rx
-                .recv()
-                .await
-                .inspect(|e| println!("{e:?}"))
-                .expect("channel closed"),
-        )
-        .map_err(|e| OodAppErr::ExternalParseError(e))
-        .map(|OodRes { res, .. }| res)
-    }
-
-    pub async fn cf<'a, A: OodAction>(
-        &mut self,
-        payload: &OodReply<'a, A>,
-    ) -> Result<A::Reply, OodAppErr> {
-        let r = self.communicate::<A>(payload).await;
+        r: Result<T, IntOodAppErr<A>>,
+    ) -> Result<T, IntOodAppErr<A>> {
         if let Err(ref e) = r {
-            self.out_tx
-                .send(OodReplyType::Error(e.to_string()))
-                .await
-                .expect("channel closed");
+            self.tx(OodReplyType::Err(e.into())).await;
         }
         r
     }
+    async fn tx(&mut self, payload: OodReplyType) {
+        self.out_tx.send(payload).await.expect("channel closed");
+    }
+    pub async fn rx(&mut self) -> OodPayload {
+        self.in_rx.recv().await.expect("channel closed")
+    }
 
-    pub async fn external_redirect(self, uri: Cow<'static, str>) -> OodFinished {
-        self.out_tx
-            .send(OodReplyType::ExternalRedirect(uri))
-            .await
-            .expect("channel closed");
+    // all subsequent comms are: out -> in
+    pub async fn cf<'a, A: OodAction>(
+        &mut self,
+        payload: &OodReply<'a, A>,
+    ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>> {
+        let o = serde_json::to_string(payload).map_err(IntOodAppErr::InternalParseErr);
+        let o = self.err_wrapper(o).await?;
+        self.tx(OodReplyType::Payload(o.into()));
+
+        let i = self.rx().await;
+        Ok(OodPayloadParser {
+            bridge: self,
+            inner: i,
+            _target: PhantomData,
+        })
+    }
+
+    pub async fn external_redirect(mut self, uri: Cow<'static, str>) -> OodFinished {
+        self.tx(OodReplyType::ExternalRedirect(uri)).await;
         OodFinished::new()
     }
 
-    pub async fn internal_redirect(self, s_id: &SessionId) -> OodFinished {
+    pub async fn internal_redirect(mut self, s_id: &SessionId) -> OodFinished {
         /* this allows for a pretty cool application: you can have pages that are only accessible through another page (not an actual route) */
 
         // consume the bridge because this sessions is DONE DOUGH!
-        self.out_tx
-            .send(OodReplyType::InternalRedirect(s_id.clone()))
-            .await
-            .expect("channel closed");
+        self.tx(OodReplyType::InternalRedirect(s_id.clone())).await;
 
         OodFinished::new()
     }
 
-    pub async fn finished(self) -> OodFinished {
-        self.out_tx
-            .send(OodReplyType::Finished)
-            .await
-            .expect("channel closed");
+    pub async fn finished(mut self) -> OodFinished {
+        self.tx(OodReplyType::Finished).await;
 
         OodFinished::new() // private - can only construct here
     }

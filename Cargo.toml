@@ -23,6 +23,7 @@ strum = { version = "0.28.0", features = ["derive"] }
 strum_macros = "0.28.0"
 anyhow = "1.0.104"
 bytes = "1.12.1"
+mime = "0.3.17"
 
 [profile.release]
 codegen-units = 1

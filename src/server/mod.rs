@@ -1,8 +1,10 @@
-use std::{collections::HashMap, fmt::Display, net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, fmt::Display, net::SocketAddr, ops::Deref, sync::Arc, time::Duration,
+};
 
 use crate::server::{
     handlers::{get_session_cache, session_handler},
-    interface::OodReplyType,
+    interface::{ExtOodAppErr, OodPayload, OodReplyType},
 };
 use thiserror::Error;
 use tokio::{
@@ -56,7 +58,7 @@ pub struct OodServer {
 
 pub struct OodSession {
     rx: mpsc::Receiver<OodReplyType>,
-    tx: mpsc::Sender<serde_json::Value>,
+    tx: mpsc::Sender<OodPayload>,
     last_payload: Option<String>,
     last_change: Instant,
     task: JoinHandle<()>,
@@ -81,6 +83,9 @@ enum OodReqErr {
 
     #[error("cache is empty")]
     EmptyCache,
+
+    #[error("backend error")]
+    OodBackendError(ExtOodAppErr),
 }
 
 impl warp::reject::Reject for OodReqErr {}
@@ -105,7 +110,7 @@ async fn janitor_task(sessions: OodSessionContainer, run_period: Duration, expir
 }
 
 impl OodSession {
-    async fn send(&self, p: serde_json::Value) -> Result<(), warp::Rejection> {
+    async fn send(&self, p: OodPayload) -> Result<(), warp::Rejection> {
         self.tx
             .send(p)
             .await
