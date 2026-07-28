@@ -7,10 +7,7 @@ use crate::{
         BarkClient, BarkError,
         payload::{BarkPayload, PushLevel},
     },
-    brain::{
-        calendar::{OodCalErr, OodCalendar},
-        pages::Homepage,
-    },
+    brain::{calendar::OodCalErr, pages::Homepage},
     gcal::GoogleCalendar,
     server::{
         OodServer,

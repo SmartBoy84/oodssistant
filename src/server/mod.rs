@@ -6,6 +6,8 @@ use crate::server::{
     handlers::{get_session_cache, session_handler},
     interface::{ExtOodAppErr, OodPayload, OodReplyType},
 };
+use mime::Mime;
+use serde_json::Value;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc},
@@ -73,7 +75,7 @@ enum OodReqErr {
     SessionNotFound,
 
     #[error("backend err")]
-    BackendErr(String),
+    BackendErr(ExtOodAppErr),
 
     #[error("bad redirect uri")]
     BadRedirectUri,
@@ -83,9 +85,6 @@ enum OodReqErr {
 
     #[error("cache is empty")]
     EmptyCache,
-
-    #[error("backend error")]
-    OodBackendError(ExtOodAppErr),
 }
 
 impl warp::reject::Reject for OodReqErr {}
@@ -153,10 +152,8 @@ impl OodServer {
             // drive forwards
             let post_session_route = session_base
                 .and(warp::post())
-                .and(
-                    warp::body::content_length_limit(JSON_MAX_LENGTH)
-                        .and(warp::body::json::<serde_json::Value>().map(Some)),
-                )
+                .and(warp::body::bytes().map(Some))
+                .and(warp::header::optional::<Mime>("content-type"))
                 .and_then(session_handler);
 
             get_session_route.or(post_session_route)

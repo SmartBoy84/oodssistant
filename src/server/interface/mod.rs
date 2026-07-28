@@ -102,9 +102,10 @@ pub enum OodReplyType {
 
 // this is the internal error type (inside the handler)
 #[derive(Debug, Error)]
-#[error(transparent)]
 pub enum IntOodAppErr<A: OodAction> {
+    #[error(transparent)]
     InternalParseErr(serde_json::Error), // internal is always json for now
+    #[error(transparent)]
     ExternalParseErr(OodPayloadParseError<<A::Reply as OodParse>::E>),
 }
 
@@ -116,6 +117,8 @@ pub enum ExtOodAppErr {
 
     #[error("internal parse error")]
     InternalParseError(Box<str>), // internal is always json for now
+    #[error("channel closed")]
+    ChannelClosed,
 }
 
 impl<A: OodAction> From<&IntOodAppErr<A>> for ExtOodAppErr {

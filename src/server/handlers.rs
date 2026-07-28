@@ -6,18 +6,16 @@ it would clone it but the lifetimes became hellish to manage (mentally and in pr
 
 use std::str::FromStr;
 
+use mime::Mime;
 use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
-use serde_json::Value;
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::Instant;
 use warp::reply::Reply;
 
 use crate::server::{
-    OodReqErr, OodSession, OodSessionContainer, SessionId,
-    interface::{
-        OodReplyType,
-        page::{IsOodSessionPara, OodPagePara, OodPageSession},
+    OodReqErr, OodSession, OodSessionContainer, SessionId, interface::{
+        OodPayload, OodReplyType, page::{IsOodSessionPara, OodPagePara, OodPageSession},
     },
 };
 
@@ -73,7 +71,7 @@ pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
     };
 
     let _ = sessions.lock().await.insert(s_id.clone(), session); // make persistent
-    let first_res = session_handler(s_id, sessions, None).await;
+    let first_res = session_handler(s_id, sessions, None, None).await;
 
     Ok(first_res?)
 }
@@ -109,7 +107,8 @@ pub async fn get_session_cache(
 pub async fn session_handler(
     session_id: SessionId,
     sessions: OodSessionContainer,
-    body: Option<Value>,
+    body: Option<bytes::Bytes>,
+    content_type: Option<Mime>
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
     let mut session_guard = sessions.lock().await;
 
@@ -121,7 +120,7 @@ pub async fn session_handler(
     println!("comm [{session_id}]");
 
     if let Some(body) = body {
-        session.send(body).await? // if not, we are in an initial request
+        session.send(OodPayload { body, content_type }).await? // if not, we are in an initial request
     } else {
         session.last_change = Instant::now(); // i.e., last time this endpoint was queried
     }

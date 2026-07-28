@@ -39,7 +39,7 @@ impl OodBridge {
         r
     }
     async fn tx(&mut self, payload: OodReplyType) {
-        self.out_tx.send(payload).await.expect("channel closed");
+        self.out_tx.send(payload).await.expect("channel closed"); // channel closure is a BUG so treat it as such
     }
     pub async fn rx(&mut self) -> OodPayload {
         self.in_rx.recv().await.expect("channel closed")
