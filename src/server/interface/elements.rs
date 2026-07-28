@@ -1,9 +1,24 @@
 use std::{marker::PhantomData, time::Duration};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use strum::{EnumString, VariantNames};
 
-use crate::server::interface::{HasSummary, NoSummary, OodAction, responses::OodOptional};
+use crate::server::interface::{HasSummary, NoSummary, OodAction, responses::{ImageWrapper, OodOptional}};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OodCameraSide {
+    Front,
+    Back,
+}
+
+pub struct OodTakeImage;
+impl OodAction for OodTakeImage {
+    const NAME: &'static str = "image";
+    type Item = OodCameraSide;
+    type Reply = ImageWrapper;
+    type ActionType = NoSummary;
+}
 
 pub struct OodMemWrite; // get unique device id (persistent)
 impl OodAction for OodMemWrite {

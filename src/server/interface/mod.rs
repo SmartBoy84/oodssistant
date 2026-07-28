@@ -16,7 +16,7 @@ pub mod responses;
 pub enum OodPayloadParseError<E: Error> {
     #[error("missing content-type header")]
     NoContentTypeHeader,
-    #[error("invalid content type")]
+    #[error("Do not support {0}")]
     InvalidContentType(Mime),
     #[error(transparent)]
     ParseError(#[from] E),

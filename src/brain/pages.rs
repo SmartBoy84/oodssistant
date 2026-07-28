@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     sync::{
         Arc,
         mpsc::{Receiver, Sender},
@@ -13,8 +14,9 @@ use crate::server::{
     interface::{
         OodAction, OodActionHasNoSummary, OodActionHasSummary,
         elements::{
-            OodButtonList, OodInfo, OodMemDelete, OodMemRead, OodMemWrite, OodOpenUri,
-            OodStopwatch, OodStopwatchAction, OodTextInput, OodTimer, Seconds,
+            OodButtonList, OodCameraSide, OodInfo, OodMemDelete, OodMemRead, OodMemWrite,
+            OodOpenUri, OodStopwatch, OodStopwatchAction, OodTakeImage, OodTextInput, OodTimer,
+            Seconds,
         },
         page::{OodPageSession, OodSessionPara, basic::OodBasicPage, para::OodParaPage},
     },
@@ -40,29 +42,11 @@ impl OodPageSession<()> for Homepage {
         OodSessionPara { session_id }: Self::SessionPara,
     ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::ExtOodAppErr>
     {
-        b.cf(&OodMemDelete::new(DEVICE_ID.into())).await?;
-
-        let device_id = match b.cf(&OodMemRead::new(DEVICE_ID.into())).await?.p()? {
-            None => {
-                b.cf(&OodInfo::new("Id not found", "")).await?;
-                b.cf(&OodMemWrite::new(DEVICE_ID.into(), &session_id))
-                    .await?;
-                session_id
-            }
-            Some(id) => id.to_owned().into(),
-        };
-        if self.conns.lock().await.contains(&device_id) {
-            b.cf(&OodInfo::new("Restoring old session", "")).await?;
-            return Ok(b.internal_redirect(&device_id).await);
-        }
-
-        let _ = *&self.conns.lock().await.insert(device_id);
-
-        for i in 0..100 {
-            println!("{i}");
-            b.cf(&OodInfo::new(&format!("{i}"), "")).await?;
-            println!("ret!");
-        }
+        b.cf(&OodInfo::new("Hey!", "About to take a photo - ready?"))
+            .await?;
+        let image = b.cf(&OodTakeImage::new(&OodCameraSide::Front)).await?;
+        println!("Got it!");
+        fs::write("image.jpg", image.p()?).unwrap();
         Ok(b.finished().await)
     }
 }

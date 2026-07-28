@@ -1,5 +1,6 @@
-use std::{marker::PhantomData, str::Utf8Error};
+use std::{convert::Infallible, marker::PhantomData, str::Utf8Error};
 
+use mime::IMAGE_JPEG;
 use serde::{
     Deserialize,
     de::{self, Visitor},
@@ -73,6 +74,23 @@ impl<T: OodParse + ?Sized> OodParse for OodOptional<T> {
         } else {
             T::ood_try_from(body, content_type).map(Some)
         }
+    }
+}
+
+pub struct ImageWrapper(bytes::Bytes);
+impl OodParseWithContentType for ImageWrapper {
+    type E = Infallible;
+    type O<'a> = &'a [u8];
+    fn ood_try_from<'a>(
+        body: &'a bytes::Bytes,
+        content_type: &'a mime::Mime,
+    ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>> {
+        if content_type != &IMAGE_JPEG {
+            return Err(OodPayloadParseError::InvalidContentType(
+                content_type.clone(),
+            ));
+        }
+        Ok(&body[..])
     }
 }
 

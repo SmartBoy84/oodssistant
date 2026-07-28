@@ -163,6 +163,14 @@ impl OodServer {
             if info.status() == warp::http::StatusCode::NOT_FOUND {
                 println!("unknown path: {} ({})", info.path(), info.method())
             }
+            println!(
+                "[request] remote={:?} method={} path={} status={} elapsed={}ms",
+                info.remote_addr(),
+                info.method(),
+                info.path(),
+                info.status(),
+                info.elapsed().as_millis(),
+            );
         }));
 
         let server = tokio::spawn(warp::serve(server_path).run(server_uri));
