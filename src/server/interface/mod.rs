@@ -52,6 +52,7 @@ impl<'a, A: OodAction> OodPayloadParser<'a, A> {
      */
 
     // do not use 'a because I don't want to tie output lifetime to bridge
+    // don't really want this to be async but must be async because errors here must be reported back to client
     pub async fn p<'b>(&'b mut self) -> Result<<A::Reply as OodParse>::O<'b>, IntOodAppErr<A>> {
         let OodPayload { body, content_type } = &self.inner;
         let r =
@@ -78,7 +79,7 @@ pub trait OodParseWithContentType {
     ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>>;
 }
 
-impl<T: OodParseWithContentType> OodParse for T {
+impl<T: OodParseWithContentType + ?Sized> OodParse for T {
     type E = <Self as OodParseWithContentType>::E;
     type O<'a> = <Self as OodParseWithContentType>::O<'a>;
     fn ood_try_from<'a>(
@@ -113,23 +114,28 @@ pub enum IntOodAppErr<A: OodAction> {
 #[derive(Debug, Error, Clone)]
 pub enum ExtOodAppErr {
     #[error("external parse error")]
-    ExternalParseError(Box<str>),
+    ExternalParseError(String),
 
     #[error("internal parse error")]
-    InternalParseError(Box<str>), // internal is always json for now
+    InternalParseError(String), // internal is always json for now
     #[error("channel closed")]
     ChannelClosed,
+}
+
+impl<A: OodAction> From<IntOodAppErr<A>> for ExtOodAppErr {
+    fn from(value: IntOodAppErr<A>) -> Self {
+        match value {
+            IntOodAppErr::InternalParseErr(e) => ExtOodAppErr::InternalParseError(e.to_string()),
+            IntOodAppErr::ExternalParseErr(e) => ExtOodAppErr::ExternalParseError(e.to_string()),
+        }
+    }
 }
 
 impl<A: OodAction> From<&IntOodAppErr<A>> for ExtOodAppErr {
     fn from(value: &IntOodAppErr<A>) -> Self {
         match value {
-            IntOodAppErr::InternalParseErr(e) => {
-                ExtOodAppErr::InternalParseError(e.to_string().into_boxed_str())
-            }
-            IntOodAppErr::ExternalParseErr(e) => {
-                ExtOodAppErr::ExternalParseError(e.to_string().into_boxed_str())
-            }
+            IntOodAppErr::InternalParseErr(e) => ExtOodAppErr::InternalParseError(e.to_string()),
+            IntOodAppErr::ExternalParseErr(e) => ExtOodAppErr::ExternalParseError(e.to_string()),
         }
     }
 }
@@ -182,7 +188,7 @@ impl<S: ?Sized + Serialize, T: OodAction<ActionType = HasSummary<S>>> OodActionH
 pub trait OodAction {
     const NAME: &'static str;
     type Item: ?Sized + Serialize; // needed to set type Item = str
-    type Reply: OodParse;
+    type Reply: OodParse + ?Sized;
     type ActionType: OodActionType;
 }
 

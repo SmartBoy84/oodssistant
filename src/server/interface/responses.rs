@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, str::Utf8Error};
+use std::str::Utf8Error;
 
 use serde::{
     Deserialize,
@@ -22,18 +22,9 @@ pub enum SerdeEmptyResponse {
     EmptyString,
 }
 
-#[derive(Debug)]
-pub struct EmptyResponse;
-
 #[derive(Debug, Error)]
 #[error("not empty")]
 pub struct NotEmpty;
-
-#[derive(Debug)]
-pub struct JsonPayload<'de, T: Deserialize<'de>> {
-    inner: bytes::Bytes,
-    _lifetime: PhantomData<&'de T>,
-}
 
 impl OodParse for () {
     type E = NotEmpty; // in case user wants to enforce that return is empty (if not, just discard!)

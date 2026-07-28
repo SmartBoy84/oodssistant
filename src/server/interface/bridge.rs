@@ -38,9 +38,7 @@ Motivation:
 impl<'a, A: OodAction> OodReq<'a, A> {
     // all subsequent comms are: out -> in
     pub async fn c(&mut self) -> Result<OodPayloadParser<A>, IntOodAppErr<A>> {
-        self.b.tx(OodReplyType::Payload(self.raw.clone())); // cloning bytes is cheap - increment ref count
-
-        let i = self.b.rx().await;
+        let i = self.b.comm(self.raw.clone()).await; // cloning bytes is cheap - increment ref count
         Ok(OodPayloadParser {
             bridge: self.b,
             inner: i,
@@ -69,22 +67,40 @@ impl OodBridge {
     pub async fn rx(&mut self) -> OodPayload {
         self.in_rx.recv().await.expect("channel closed")
     }
-
-    pub async fn cf<'a, A: OodAction>(
-        &'a mut self,
-        payload: &OodReply<'a, A>,
-    ) -> Result<OodReq<'a, A>, IntOodAppErr<A>> {
-        // convenience method when you don't want to save payload
-
-        todo!("self.n(payload).await?.c().await?.p().await")
+    pub async fn comm(&mut self, raw_payload: bytes::Bytes) -> OodPayload {
+        // foundational communication method - in -> out -> ...
+        self.tx(OodReplyType::Payload(raw_payload)); // cloning bytes is cheap - increment ref count
+        self.rx().await
+    }
+    pub async fn parse_payload<A: OodAction>(
+        &mut self,
+        payload: &OodReply<'_, A>,
+    ) -> Result<bytes::Bytes, IntOodAppErr<A>> {
+        let o = serde_json::to_vec(payload).map_err(IntOodAppErr::InternalParseErr);
+        Ok(bytes::Bytes::from(self.err_wrapper(o).await?))
     }
 
-    pub async fn n<'a, A: OodAction>(
+    pub async fn cf<'bridge, A>(
+        &'bridge mut self,
+        payload: &OodReply<'_, A>,
+    ) -> Result<OodPayloadParser<'bridge, A>, IntOodAppErr<A>>
+    where
+        A: OodAction,
+    {
+        let raw = self.parse_payload(payload).await?;
+        let inner = self.comm(raw).await;
+        Ok(OodPayloadParser {
+            bridge: self,
+            inner,
+            _target: PhantomData,
+        })
+    }
+
+    pub async fn n<'a, 'p, A: OodAction>(
         &'a mut self,
-        payload: &OodReply<'a, A>,
+        payload: &OodReply<'_, A>,
     ) -> Result<OodReq<'a, A>, IntOodAppErr<A>> {
-        let o = serde_json::to_vec(payload).map_err(IntOodAppErr::InternalParseErr);
-        let raw = bytes::Bytes::from(self.err_wrapper(o).await?);
+        let raw = self.parse_payload(payload).await?;
         Ok(OodReq {
             b: self,
             raw,

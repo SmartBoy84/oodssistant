@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
     sync::Arc,
 };
 
@@ -11,8 +10,8 @@ use crate::server::{
     interface::{
         OodAction, OodActionHasNoSummary, OodActionHasSummary,
         elements::{
-            OodButtonList, OodFilePath, OodInfo, OodOpenUri, OodRead, OodStopwatch,
-            OodStopwatchAction, OodTextInput, OodTimer, OodWrite, OptionalResponse::Res, Seconds,
+            OodButtonList, OodInfo, OodMemRead, OodMemWrite, OodOpenUri, OodStopwatch,
+            OodStopwatchAction, OodTextInput, OodTimer, Seconds,
         },
         page::{OodPageSession, OodSessionPara, basic::OodBasicPage, para::OodParaPage},
     },
@@ -36,15 +35,16 @@ impl OodPageSession<()> for Homepage {
         mut b: crate::server::interface::bridge::OodBridge,
         _: (),
         OodSessionPara { session_id }: Self::SessionPara,
-    ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::OodAppErr>
+    ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::ExtOodAppErr>
     {
-        let device_id = match b.cf(&OodRead::new(DEVICE_ID.into())).await? {
-            Res(id) => id.into(),
-            _ => {
+        let device_id = match b.cf(&OodMemRead::new(DEVICE_ID.into())).await?.p().await? {
+            "" => {
                 b.cf(&OodInfo::new("Id not found", "")).await?;
-                b.cf(&OodWrite::new(DEVICE_ID.into(), &session_id)).await?;
+                b.cf(&OodMemWrite::new(DEVICE_ID.into(), &session_id))
+                    .await?;
                 session_id
             }
+            id => id.to_owned().into(),
         };
         if self.conns.lock().await.contains(&device_id) {
             b.cf(&OodInfo::new("Restoring old session", "")).await?;
