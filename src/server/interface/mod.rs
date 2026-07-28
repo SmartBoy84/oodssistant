@@ -93,7 +93,7 @@ impl<T: OodParseWithContentType> OodParse for T {
 }
 
 pub enum OodReplyType {
-    Payload(serde_json::Value), // don't want to deal with cache right now...
+    Payload(bytes::Bytes), // don't want to deal with cache right now...
     Err(ExtOodAppErr),
     Finished,
     InternalRedirect(SessionId),

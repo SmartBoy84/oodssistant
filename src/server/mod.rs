@@ -7,7 +7,6 @@ use crate::server::{
     interface::{ExtOodAppErr, OodPayload, OodReplyType},
 };
 use mime::Mime;
-use serde_json::Value;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc},
@@ -61,7 +60,7 @@ pub struct OodServer {
 pub struct OodSession {
     rx: mpsc::Receiver<OodReplyType>,
     tx: mpsc::Sender<OodPayload>,
-    last_payload: Option<String>,
+    last_payload: Option<bytes::Bytes>,
     last_change: Instant,
     task: JoinHandle<()>,
 }
@@ -79,9 +78,6 @@ enum OodReqErr {
 
     #[error("bad redirect uri")]
     BadRedirectUri,
-
-    #[error("serialisation error")]
-    SerialisationError(#[from] serde_json::Error),
 
     #[error("cache is empty")]
     EmptyCache,

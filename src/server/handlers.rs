@@ -8,35 +8,16 @@ use std::str::FromStr;
 
 use mime::Mime;
 use reqwest::header::CONTENT_TYPE;
-use serde::Serialize;
-use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::Instant;
 use warp::reply::Reply;
 
 use crate::server::{
-    OodReqErr, OodSession, OodSessionContainer, SessionId, interface::{
-        OodPayload, OodReplyType, page::{IsOodSessionPara, OodPagePara, OodPageSession},
+    OodReqErr, OodSession, OodSessionContainer, SessionId,
+    interface::{
+        OodPayload, OodReplyType,
+        page::{IsOodSessionPara, OodPagePara, OodPageSession},
     },
 };
-
-// NOTE; session_id is NON-negotiable (I tried other options, trust me... like one shot page)
-#[serde_as]
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OodSessionPayload {
-    #[serde_as(as = "DisplayFromStr")]
-    session_id: SessionId,
-    payload: serde_json::Value,
-}
-
-impl OodSessionPayload {
-    fn new(session_id: SessionId, payload: serde_json::Value) -> Self {
-        Self {
-            payload,
-            session_id,
-        }
-    }
-}
 
 /*
 new_session needs sessions because new_session -> session_handler -> Redirect -> IsSession -> needs to append!
@@ -76,7 +57,7 @@ pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
     Ok(first_res?)
 }
 
-pub fn make_json_response(payload: String) -> warp::reply::Response {
+pub fn make_json_response(payload: bytes::Bytes) -> warp::reply::Response {
     let mut res = warp::reply::Response::new(payload.into());
 
     // copied from warp::reply::json(..).into_response()
@@ -99,7 +80,7 @@ pub async fn get_session_cache(
         .ok_or(OodReqErr::SessionNotFound)?;
 
     match &session.last_payload {
-        Some(cached_payload) => Ok(make_json_response(cached_payload.to_string())),
+        Some(cached_payload) => Ok(make_json_response(cached_payload.clone())),
         None => Err(warp::reject::custom(OodReqErr::EmptyCache)),
     }
 }
@@ -108,7 +89,7 @@ pub async fn session_handler(
     session_id: SessionId,
     sessions: OodSessionContainer,
     body: Option<bytes::Bytes>,
-    content_type: Option<Mime>
+    content_type: Option<Mime>,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
     let mut session_guard = sessions.lock().await;
 
@@ -129,11 +110,8 @@ pub async fn session_handler(
 
     match res {
         OodReplyType::Payload(p) => {
-            println!("sending: {p}");
-            let payload = serde_json::to_string(&OodSessionPayload::new(session_id.into(), p))
-                .map_err(|e| OodReqErr::SerialisationError(e))?;
-            session.last_payload = Some(payload.clone());
-            return Ok(make_json_response(payload));
+            session.last_payload = Some(p.clone());
+            return Ok(make_json_response(p));
         }
 
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
