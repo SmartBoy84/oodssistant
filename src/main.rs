@@ -19,7 +19,7 @@ const GOOGLE_CLIENT_SECRET: &str = env!("GOOGLE_CLIENT_SECRET");
 const GOOGLE_MY_REFRESH_TOKEN: &str = env!("GOOGLE_MY_REFRESH_TOKEN");
 
 const GOOGLE_REDIRECT_URI: &str = "127.0.0.1:3001";
-const OOD_SERVER_URI: &str = "192.168.0.105:3002";
+const OOD_SERVER_URI: &str = "192.168.0.105:3141";
 
 const OOD_CALENDAR_NAME: &str = "Ood";
 

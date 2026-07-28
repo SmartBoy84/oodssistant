@@ -1,4 +1,4 @@
-use std::str::Utf8Error;
+use std::{marker::PhantomData, str::Utf8Error};
 
 use serde::{
     Deserialize,
@@ -54,6 +54,25 @@ impl OodParseWithContentType for str {
             ));
         }
         str::from_utf8(body).map_err(Into::into)
+    }
+}
+
+pub struct OodOptional<T: ?Sized>(PhantomData<T>);
+
+// e.g., Option<str> -> adapter allows for cases where there is no content-type header
+impl<T: OodParse + ?Sized> OodParse for OodOptional<T> {
+    // I have to remember `+ ?Sized` actually broadens the scope!
+    type E = T::E;
+    type O<'a> = Option<T::O<'a>>;
+    fn ood_try_from<'a>(
+        body: &'a bytes::Bytes,
+        content_type: &'a Option<mime::Mime>,
+    ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>> {
+        if body.trim_ascii().len() == 0 {
+            Ok(None)
+        } else {
+            T::ood_try_from(body, content_type).map(Some)
+        }
     }
 }
 

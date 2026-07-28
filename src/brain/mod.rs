@@ -9,11 +9,7 @@ use crate::{
     },
     brain::{calendar::OodCalErr, pages::Homepage},
     gcal::GoogleCalendar,
-    server::{
-        OodServer,
-        builder::OodServerBuilder,
-        interface::page::{basic::OodStatic, para::OodPara},
-    },
+    server::{OodServer, builder::OodServerBuilder, interface::page::basic::OodStatic},
 };
 
 pub mod calendar;

@@ -1,11 +1,9 @@
 use std::{marker::PhantomData, time::Duration};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use strum::{EnumString, VariantNames};
 
-use crate::server::interface::{
-    HasSummary, NoSummary, OodAction,
-};
+use crate::server::interface::{HasSummary, NoSummary, OodAction, responses::OodOptional};
 
 pub struct OodMemWrite; // get unique device id (persistent)
 impl OodAction for OodMemWrite {
@@ -19,7 +17,7 @@ pub struct OodMemRead; // get unique device id (persistent)
 impl OodAction for OodMemRead {
     const NAME: &'static str = "mem_read";
     type Item = str; // file name
-    type Reply = str;
+    type Reply = OodOptional<str>;
     type ActionType = NoSummary;
 }
 
@@ -56,7 +54,7 @@ where
 {
     const NAME: &'static str = "button";
     type Item = [T]; // (name, return value)
-    type Reply = str; // shortcut limitation/simplification
+    type Reply = str; // shortcut limitation/simplification - no text back is an error (i.e., not optional)
     type ActionType = HasSummary<str>;
 }
 pub struct OodTimer; // start a timer on the device
@@ -95,6 +93,6 @@ pub struct OodTextInput;
 impl OodAction for OodTextInput {
     const NAME: &'static str = "text_input";
     type Item = str; // default value (if editing)
-    type Reply = str; // shortcut limitation/simplification
+    type Reply = OodOptional<str>; // shortcut limitation/simplification
     type ActionType = HasSummary<str>;
 }

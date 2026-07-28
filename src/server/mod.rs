@@ -7,6 +7,7 @@ use crate::server::{
     interface::{ExtOodAppErr, OodPayload, OodReplyType},
 };
 use mime::Mime;
+use serde::Serialize;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc},
@@ -81,6 +82,9 @@ enum OodReqErr {
 
     #[error("cache is empty")]
     EmptyCache,
+
+    #[error("serialisation error")]
+    SerdeSerialisationError(#[from] serde_json::Error),
 }
 
 impl warp::reject::Reject for OodReqErr {}

@@ -6,8 +6,11 @@ it would clone it but the lifetimes became hellish to manage (mentally and in pr
 
 use std::str::FromStr;
 
+use bytes::Bytes;
 use mime::Mime;
 use reqwest::header::CONTENT_TYPE;
+use serde::Serialize;
+use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::Instant;
 use warp::reply::Reply;
 
@@ -18,6 +21,15 @@ use crate::server::{
         page::{IsOodSessionPara, OodPagePara, OodPageSession},
     },
 };
+
+#[serde_as]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OodClientPayload {
+    #[serde_as(as = "DisplayFromStr")]
+    session_id: SessionId,
+    payload: serde_json::Value,
+}
 
 /*
 new_session needs sessions because new_session -> session_handler -> Redirect -> IsSession -> needs to append!
@@ -109,9 +121,15 @@ pub async fn session_handler(
     let res = session.recv().await?;
 
     match res {
-        OodReplyType::Payload(p) => {
-            session.last_payload = Some(p.clone());
-            return Ok(make_json_response(p));
+        OodReplyType::Payload(payload) => {
+            let s = serde_json::to_string(&OodClientPayload {
+                session_id,
+                payload,
+            })
+            .map_err(OodReqErr::SerdeSerialisationError)?;
+            let b = Bytes::from(s);
+            session.last_payload = Some(b.clone());
+            return Ok(make_json_response(b));
         }
 
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)

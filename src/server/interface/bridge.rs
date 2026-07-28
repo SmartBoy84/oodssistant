@@ -2,6 +2,7 @@
 
 use std::{borrow::Cow, marker::PhantomData};
 
+use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::server::{
@@ -26,7 +27,7 @@ pub struct OodBridge {
 
 pub struct OodReq<'a, A: OodAction> {
     b: &'a mut OodBridge,
-    raw: bytes::Bytes, // immutable, ref-counted buffer
+    raw: Value, // immutable, ref-counted buffer
     src: PhantomData<A>,
 }
 
@@ -37,10 +38,9 @@ Motivation:
 */
 impl<'a, A: OodAction> OodReq<'a, A> {
     // all subsequent comms are: out -> in
-    pub async fn c(&mut self) -> Result<OodPayloadParser<A>, IntOodAppErr<A>> {
+    pub async fn c(&'a mut self) -> Result<OodPayloadParser<A>, IntOodAppErr<A>> {
         let i = self.b.comm(self.raw.clone()).await; // cloning bytes is cheap - increment ref count
         Ok(OodPayloadParser {
-            bridge: self.b,
             inner: i,
             _target: PhantomData,
         })
@@ -52,45 +52,34 @@ impl OodBridge {
         Self { out_tx, in_rx }
     }
 
-    pub async fn err_wrapper<T, A: OodAction>(
-        &mut self,
-        r: Result<T, IntOodAppErr<A>>,
-    ) -> Result<T, IntOodAppErr<A>> {
-        if let Err(ref e) = r {
-            self.tx(OodReplyType::Err(e.into())).await;
-        }
-        r
-    }
-    async fn tx(&mut self, payload: OodReplyType) {
+    async fn tx(&self, payload: OodReplyType) {
         self.out_tx.send(payload).await.expect("channel closed"); // channel closure is a BUG so treat it as such
     }
     pub async fn rx(&mut self) -> OodPayload {
         self.in_rx.recv().await.expect("channel closed")
     }
-    pub async fn comm(&mut self, raw_payload: bytes::Bytes) -> OodPayload {
+    pub async fn comm(&mut self, raw_payload: Value) -> OodPayload {
         // foundational communication method - in -> out -> ...
-        self.tx(OodReplyType::Payload(raw_payload)); // cloning bytes is cheap - increment ref count
+        self.tx(OodReplyType::Payload(raw_payload)).await; // cloning bytes is cheap - increment ref count
         self.rx().await
     }
-    pub async fn parse_payload<A: OodAction>(
-        &mut self,
+    pub fn parse_payload<A: OodAction>(
+        &self,
         payload: &OodReply<'_, A>,
-    ) -> Result<bytes::Bytes, IntOodAppErr<A>> {
-        let o = serde_json::to_vec(payload).map_err(IntOodAppErr::InternalParseErr);
-        Ok(bytes::Bytes::from(self.err_wrapper(o).await?))
+    ) -> Result<Value, IntOodAppErr<A>> {
+        serde_json::to_value(payload).map_err(IntOodAppErr::InternalParseErr)
     }
 
-    pub async fn cf<'bridge, A>(
-        &'bridge mut self,
+    pub async fn cf<A>(
+        &mut self,
         payload: &OodReply<'_, A>,
-    ) -> Result<OodPayloadParser<'bridge, A>, IntOodAppErr<A>>
+    ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>>
     where
         A: OodAction,
     {
-        let raw = self.parse_payload(payload).await?;
+        let raw = self.parse_payload(payload)?;
         let inner = self.comm(raw).await;
         Ok(OodPayloadParser {
-            bridge: self,
             inner,
             _target: PhantomData,
         })
@@ -100,7 +89,7 @@ impl OodBridge {
         &'a mut self,
         payload: &OodReply<'_, A>,
     ) -> Result<OodReq<'a, A>, IntOodAppErr<A>> {
-        let raw = self.parse_payload(payload).await?;
+        let raw = self.parse_payload(payload)?;
         Ok(OodReq {
             b: self,
             raw,
@@ -108,12 +97,12 @@ impl OodBridge {
         })
     }
 
-    pub async fn external_redirect(mut self, uri: Cow<'static, str>) -> OodFinished {
+    pub async fn external_redirect(self, uri: Cow<'static, str>) -> OodFinished {
         self.tx(OodReplyType::ExternalRedirect(uri)).await;
         OodFinished::new()
     }
 
-    pub async fn internal_redirect(mut self, s_id: &SessionId) -> OodFinished {
+    pub async fn internal_redirect(self, s_id: &SessionId) -> OodFinished {
         /* this allows for a pretty cool application: you can have pages that are only accessible through another page (not an actual route) */
 
         // consume the bridge because this sessions is DONE DOUGH!
@@ -122,7 +111,7 @@ impl OodBridge {
         OodFinished::new()
     }
 
-    pub async fn finished(mut self) -> OodFinished {
+    pub async fn finished(self) -> OodFinished {
         self.tx(OodReplyType::Finished).await;
 
         OodFinished::new() // private - can only construct here

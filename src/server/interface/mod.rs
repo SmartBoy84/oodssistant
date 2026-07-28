@@ -4,7 +4,7 @@ use mime::Mime;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::server::{SessionId, interface::bridge::OodBridge};
+use crate::server::SessionId;
 
 pub mod bridge;
 pub mod elements;
@@ -28,17 +28,14 @@ pub struct OodPayload {
     pub content_type: Option<Mime>,
 }
 
-// this takes OodBridge so we can report errors in here as well
-pub struct OodPayloadParser<'a, A: OodAction> {
-    bridge: &'a mut OodBridge,
+pub struct OodPayloadParser<A: OodAction> {
     inner: OodPayload,
     _target: PhantomData<A>,
 }
 
-impl<'a, A: OodAction> OodPayloadParser<'a, A> {
-    pub fn new(inner: OodPayload, bridge: &'a mut OodBridge) -> Self {
+impl<'a, A: OodAction> OodPayloadParser<A> {
+    pub fn new(inner: OodPayload) -> Self {
         Self {
-            bridge,
             inner,
             _target: PhantomData,
         }
@@ -50,14 +47,9 @@ impl<'a, A: OodAction> OodPayloadParser<'a, A> {
     cf returns a Parser containing Bytes and I can do .p() immediately after because those bytes are "temporarily stored" in the previous activation stack which persists until p() finishes
     this is really convenient because in 95% of cases I send a response to the client and immediately banch on the reply - i.e., I rarely need to "remember" the response
      */
-
-    // do not use 'a because I don't want to tie output lifetime to bridge
-    // don't really want this to be async but must be async because errors here must be reported back to client
-    pub async fn p<'b>(&'b mut self) -> Result<<A::Reply as OodParse>::O<'b>, IntOodAppErr<A>> {
+    pub fn p<'b>(&'b self) -> Result<<A::Reply as OodParse>::O<'b>, IntOodAppErr<A>> {
         let OodPayload { body, content_type } = &self.inner;
-        let r =
-            A::Reply::ood_try_from(body, content_type).map_err(IntOodAppErr::ExternalParseErr::<A>); // this is an EXTERNAL error
-        self.bridge.err_wrapper(r).await
+        A::Reply::ood_try_from(body, content_type).map_err(IntOodAppErr::ExternalParseErr::<A>) // this is an EXTERNAL error
     }
 }
 
@@ -94,7 +86,7 @@ impl<T: OodParseWithContentType + ?Sized> OodParse for T {
 }
 
 pub enum OodReplyType {
-    Payload(bytes::Bytes), // don't want to deal with cache right now...
+    Payload(serde_json::Value), // don't want to deal with cache right now...
     Err(ExtOodAppErr),
     Finished,
     InternalRedirect(SessionId),
