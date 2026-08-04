@@ -1,10 +1,11 @@
 use std::{borrow::Cow, error::Error, fmt::Debug, marker::PhantomData};
 
 use mime::Mime;
+use oauth2::http::HeaderValue;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::server::SessionId;
+use crate::server::{OodPayloadResponder, SessionId};
 
 pub mod bridge;
 pub mod elements;
@@ -86,11 +87,18 @@ impl<T: OodParseWithContentType + ?Sized> OodParse for T {
 }
 
 pub enum OodReplyType {
-    Payload(serde_json::Value), // don't want to deal with cache right now...
-    Err(ExtOodAppErr),
+    Payload(Box<dyn OodPayloadResponder>), // don't want to deal with cache right now...
     Finished,
     InternalRedirect(SessionId),
     ExternalRedirect(Cow<'static, str>),
+}
+
+#[derive(Debug, Error)]
+pub enum IntOodParseErr {
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error("invalid header value")]
+    InvalidHeaderValue(String),
 }
 
 // this is the internal error type (inside the handler)
@@ -106,10 +114,10 @@ pub enum IntOodAppErr<A: OodAction> {
 #[derive(Debug, Error, Clone)]
 pub enum ExtOodAppErr {
     #[error("external parse error")]
-    ExternalParseError(String),
+    ExternalParseError(String), // error reading the reply (e,.g., parsing)
 
     #[error("internal parse error")]
-    InternalParseError(String), // internal is always json for now
+    InternalParseError(String), // error creating the response payload
     #[error("channel closed")]
     ChannelClosed,
 }
@@ -132,61 +140,70 @@ impl<A: OodAction> From<&IntOodAppErr<A>> for ExtOodAppErr {
     }
 }
 
-pub trait OodActionHasSummary: OodAction {
+fn new_reply<'a, A: OodAction>(
+    data: &'a <A::ActionType as OodActionType>::Data,
+    item: &'a A::Item,
+) -> Result<OodReply<'a, A>, IntOodParseErr> {
+    let val = serde_json::to_string(item)?;
+    Ok(OodReply {
+        action: HeaderValue::from_static(A::NAME),
+        data,
+        item: HeaderValue::from_str(&val).map_err(|_| IntOodParseErr::InvalidHeaderValue(val))?,
+    })
+}
+
+pub trait OodActionHasData: OodAction {
     fn new<'a>(
-        summary: &'a <Self::ActionType as OodActionType>::Summary,
+        data: &'a <Self::ActionType as OodActionType>::Data,
         item: &'a Self::Item,
-    ) -> OodReply<'a, Self>
+    ) -> Result<OodReply<'a, Self>, IntOodParseErr>
     where
         Self: Sized,
     {
-        OodReply {
-            action: Self::NAME,
-            summary,
-            item,
-        }
+        new_reply::<Self>(data, item)
     }
 }
-pub trait OodActionHasNoSummary: OodAction {
-    fn new<'a>(item: &'a Self::Item) -> OodReply<'a, Self>
+pub trait OodActionHasNoData: OodAction {
+    fn new<'a>(item: &'a Self::Item) -> Result<OodReply<'a, Self>, IntOodParseErr>
     where
         Self: Sized,
-        Self::ActionType: OodActionType<Summary = ()>,
+        Self::ActionType: OodActionType<Data = ()>,
     {
-        OodReply {
-            action: Self::NAME,
-            summary: &(),
-            item,
-        }
+        new_reply::<Self>(&(), item)
     }
 }
 
-impl<T: OodAction<ActionType = NoSummary>> OodActionHasNoSummary for T {}
+impl<T: OodAction<ActionType = NoData>> OodActionHasNoData for T {}
 
-pub struct HasSummary<T: ?Sized>(PhantomData<T>);
-pub struct NoSummary;
+pub struct HasData<T: ?Sized>(PhantomData<T>);
+pub struct NoData;
 pub trait OodActionType {
-    type Summary: ?Sized + Serialize + Debug;
+    type Data: ?Sized + Serialize + Debug;
 }
-impl<S: ?Sized + Serialize + Debug> OodActionType for HasSummary<S> {
-    type Summary = S;
+impl<S: ?Sized + Serialize + Debug> OodActionType for HasData<S> {
+    type Data = S;
 }
-impl OodActionType for NoSummary {
-    type Summary = ();
+impl OodActionType for NoData {
+    type Data = ();
 }
 
-impl<S: ?Sized + Serialize, T: OodAction<ActionType = HasSummary<S>>> OodActionHasSummary for T {}
+impl<S: ?Sized + Serialize, T: OodAction<ActionType = HasData<S>>> OodActionHasData for T {}
 
 pub trait OodAction {
     const NAME: &'static str;
-    type Item: ?Sized + Serialize; // needed to set type Item = str
+    type Item: ?Sized + Serialize; // `?Sized` to allow using &str, `Serialize` as a convenience method
+
     type Reply: OodParse + ?Sized;
     type ActionType: OodActionType;
 }
 
-#[derive(Serialize, Debug)]
+// trait allows for more dynamic types as well (e.g., dynamic action and summary) - this is the most basic implementation
+#[derive(Debug)]
 pub struct OodReply<'a, T: OodAction> {
-    action: &'static str,
-    summary: &'a <T::ActionType as OodActionType>::Summary,
-    item: &'a T::Item,
+    // parsed header values
+    action: HeaderValue,
+    item: HeaderValue,
+
+    // data
+    data: &'a <T::ActionType as OodActionType>::Data,
 }

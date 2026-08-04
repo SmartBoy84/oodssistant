@@ -1,5 +1,6 @@
 use std::{
-    collections::HashMap, fmt::Display, net::SocketAddr, ops::Deref, sync::Arc, time::Duration,
+    collections::HashMap, error::Error, fmt::Display, net::SocketAddr, ops::Deref, sync::Arc,
+    time::Duration,
 };
 
 use crate::server::{
@@ -7,7 +8,8 @@ use crate::server::{
     interface::{ExtOodAppErr, OodPayload, OodReplyType},
 };
 use mime::Mime;
-use serde::Serialize;
+use oauth2::http::HeaderValue;
+use reqwest::header::CONTENT_LENGTH;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc},
@@ -15,7 +17,7 @@ use tokio::{
     time::Instant,
 };
 
-use warp::Filter;
+use warp::{Filter, reply::Reply};
 
 pub mod builder;
 pub mod handlers;
@@ -28,6 +30,8 @@ const TASK_EXPIRY: Duration = Duration::from_secs(30); // tasks expire after 30 
 const JSON_MAX_LENGTH: u64 = 1024 * 16;
 
 const SESSION_PART: &str = "session";
+const ITEM_HEADER: &str = "ood-item";
+const ACTION_HEADER: &str = "odd-action";
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
 pub struct SessionId(String);
@@ -61,7 +65,7 @@ pub struct OodServer {
 pub struct OodSession {
     rx: mpsc::Receiver<OodReplyType>,
     tx: mpsc::Sender<OodPayload>,
-    last_payload: Option<bytes::Bytes>,
+    last_payload: Option<Box<dyn OodPayloadResponder>>,
     last_change: Instant,
     task: JoinHandle<()>,
 }
@@ -82,9 +86,59 @@ enum OodReqErr {
 
     #[error("cache is empty")]
     EmptyCache,
+}
 
-    #[error("serialisation error")]
-    SerdeSerialisationError(#[from] serde_json::Error),
+/*
+Model
+
+Headers:
+ood-action: OodAction::Name - action type (e.g., save file, delete file, take picture etc)
+ood-item: OodAction::Item - primary action subject (e.g., filename, alert title)
+
+response data: auxilliary data - (e.g., alert description, file binary data etc)
+
+*/
+pub trait OodPayloadResponder: Send + Sync {
+    fn make_response(&self) -> Result<warp::reply::Response, warp::reject::Rejection>;
+}
+
+pub trait OodPayloadGetter: Send + Sync {
+    type StreamErr: Error; // "outer" error
+
+    // streaming para
+    type E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static; // e.g., failed to open file etc
+    type B: Into<bytes::Bytes>;
+    type S: futures_util::Stream<Item = Result<Self::B, Self::E>> + Send + Sync + 'static;
+
+    fn get_item(&self) -> HeaderValue; // creating a HeaderValue requires parsing and copying &str but this is done on this trait user's side
+    fn get_action(&self) -> HeaderValue;
+    fn get_data(&self) -> Result<Self::S, Self::StreamErr>;
+    fn len(&self) -> Option<usize>; // make None specification explicit
+}
+
+impl<T: OodPayloadGetter> OodPayloadResponder for T {
+    fn make_response(&self) -> Result<warp::reply::Response, warp::reject::Rejection> {
+        let mut res = match self.get_data() {
+            Err(e) => {
+                return Err(warp::reject::custom(OodReqErr::BackendErr(
+                    ExtOodAppErr::InternalParseError(e.to_string()),
+                )));
+            }
+            Ok(r) => warp::reply::stream(r),
+        }
+        .into_response();
+
+        if let Some(len) = self.len() {
+            res.headers_mut().insert(CONTENT_LENGTH, len.into());
+        }
+
+        res.headers_mut().insert(ACTION_HEADER, self.get_action());
+        res.headers_mut().insert(ITEM_HEADER, self.get_item());
+
+        // TODO; content-type?
+
+        Ok(res)
+    }
 }
 
 impl warp::reject::Reject for OodReqErr {}

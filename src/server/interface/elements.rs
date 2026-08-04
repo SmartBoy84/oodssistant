@@ -1,9 +1,12 @@
 use std::{marker::PhantomData, time::Duration};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use strum::{EnumString, VariantNames};
 
-use crate::server::interface::{HasSummary, NoSummary, OodAction, responses::{ImageWrapper, OodOptional}};
+use crate::server::interface::{
+    HasSummary, NoSummary, OodAction,
+    responses::{ImageWrapper, OodOptional},
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "lowercase")]

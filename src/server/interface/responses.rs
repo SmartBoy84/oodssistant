@@ -9,20 +9,6 @@ use thiserror::Error;
 
 use crate::server::interface::{OodParse, OodParseWithContentType, OodPayloadParseError};
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum SerdeOptionalResponse<T> {
-    Empty(SerdeEmptyResponse), // AYYYY, put this *first* to have "" -> EmptyString
-    Res(T),
-}
-
-#[derive(Debug)]
-pub enum SerdeEmptyResponse {
-    Null,
-    None,
-    EmptyString,
-}
-
 #[derive(Debug, Error)]
 #[error("not empty")]
 pub struct NotEmpty;
@@ -114,48 +100,3 @@ impl OodParseWithContentType for ImageWrapper {
 //         serde_json::from_slice(body).map_err(Into::into)
 //     }
 // }
-
-// could match any string - but want to enforce that incoming data should be empty to not confuse users (me, myself and I!)
-impl<'de> Deserialize<'de> for SerdeEmptyResponse {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct EmptyResponseVisitor;
-        impl<'de> Visitor<'de> for EmptyResponseVisitor {
-            type Value = SerdeEmptyResponse;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("null or empty string (`\"\"`)")
-            }
-            fn visit_unit<E>(self) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(SerdeEmptyResponse::Null)
-            }
-
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match v {
-                    "" => Ok(SerdeEmptyResponse::EmptyString),
-                    _ => Err(E::invalid_value(
-                        de::Unexpected::Str(v),
-                        &"an empty string or null",
-                    )),
-                }
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(SerdeEmptyResponse::None)
-            }
-        }
-
-        deserializer.deserialize_any(EmptyResponseVisitor)
-    }
-}

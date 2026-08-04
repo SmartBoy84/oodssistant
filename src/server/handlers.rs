@@ -6,9 +6,7 @@ it would clone it but the lifetimes became hellish to manage (mentally and in pr
 
 use std::str::FromStr;
 
-use bytes::Bytes;
 use mime::Mime;
-use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::Instant;
@@ -69,17 +67,6 @@ pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
     Ok(first_res?)
 }
 
-pub fn make_json_response(payload: bytes::Bytes) -> warp::reply::Response {
-    let mut res = warp::reply::Response::new(payload.into());
-
-    // copied from warp::reply::json(..).into_response()
-    res.headers_mut().insert(
-        CONTENT_TYPE,
-        warp::http::HeaderValue::from_static("application/json"),
-    );
-    return res;
-}
-
 pub async fn get_session_cache(
     session_id: SessionId,
     sessions: OodSessionContainer,
@@ -92,7 +79,7 @@ pub async fn get_session_cache(
         .ok_or(OodReqErr::SessionNotFound)?;
 
     match &session.last_payload {
-        Some(cached_payload) => Ok(make_json_response(cached_payload.clone())),
+        Some(cached_payload) => cached_payload.make_response(),
         None => Err(warp::reject::custom(OodReqErr::EmptyCache)),
     }
 }
@@ -122,26 +109,20 @@ pub async fn session_handler(
 
     match res {
         OodReplyType::Payload(payload) => {
-            let s = serde_json::to_string(&OodClientPayload {
-                session_id,
-                payload,
-            })
-            .map_err(OodReqErr::SerdeSerialisationError)?;
-            let b = Bytes::from(s);
-            session.last_payload = Some(b.clone());
-            return Ok(make_json_response(b));
+            /*
+            WILL ENCODE BACKEND ERROR HERE AS WELL THROUGH ABSTRACTION AROUND OODPAYLOADGETTER
+            */
+
+            let s = payload.make_response();
+            session.last_payload = Some(payload);
+            return s;
         }
 
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
         OodReplyType::Finished => Ok(warp::reply().into_response()),
-        OodReplyType::Err(e) => Err(warp::reject::custom(OodReqErr::BackendErr(e))),
         OodReplyType::InternalRedirect(s_id) => {
             drop(session_guard); // V IMPORTANT! Else will dead-lock
             Ok(get_session_cache(s_id, sessions).await?)
-            // match r {
-            //     InternalRedirectType::NewPage(u) => Ok(u.redirect(session_id, sessions).await?), // hallelujah - so, so, so much effort is underlying this simple thing!
-            //     InternalRedirectType::Session(s_id) => Ok(get_session_cache(s_id, sessions).await?),
-            // }
         }
         OodReplyType::ExternalRedirect(u) => Ok(warp::redirect::see_other(
             warp::http::Uri::from_str(&u).expect("bad external redir url?"),
