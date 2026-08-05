@@ -4,8 +4,9 @@ use warp::Filter;
 use crate::server::{
     SessionId,
     interface::{
-        ExtOodAppErr, OodPayload, OodReplyType,
+        ExtOodAppErr, OodReplyType,
         bridge::{OodBridge, OodFinished},
+        external::OodResponse,
     },
 };
 
@@ -88,7 +89,7 @@ pub trait OodPageSession<P: OodPagePara>: Clone + Send {
     ) -> (
         impl Future<Output = Result<OodFinished, ExtOodAppErr>> + Send + 'static,
         mpsc::Receiver<OodReplyType>,
-        mpsc::Sender<OodPayload>,
+        mpsc::Sender<Result<OodResponse, Box<dyn std::error::Error + Sync + Send>>>,
     ) {
         let (out_tx, out_rx) = mpsc::channel(1);
         let (in_tx, in_rx) = mpsc::channel(1);

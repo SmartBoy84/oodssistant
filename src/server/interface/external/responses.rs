@@ -1,13 +1,9 @@
 use std::{convert::Infallible, marker::PhantomData, str::Utf8Error};
 
 use mime::IMAGE_JPEG;
-use serde::{
-    Deserialize,
-    de::{self, Visitor},
-};
 use thiserror::Error;
 
-use crate::server::interface::{OodParse, OodParseWithContentType, OodPayloadParseError};
+use crate::server::interface::{OodParse, OodPayloadParseError, external::OodParseWithContentType};
 
 #[derive(Debug, Error)]
 #[error("not empty")]

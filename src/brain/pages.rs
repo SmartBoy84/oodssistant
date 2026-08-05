@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use crate::server::{
     SessionId,
     interface::{
-        OodAction, OodActionHasNoSummary, OodActionHasSummary,
+        OodAction, OodActionHasData, OodActionHasNoData,
         elements::{
             OodButtonList, OodCameraSide, OodInfo, OodMemDelete, OodMemRead, OodMemWrite,
             OodOpenUri, OodStopwatch, OodStopwatchAction, OodTakeImage, OodTextInput, OodTimer,
@@ -42,9 +42,10 @@ impl OodPageSession<()> for Homepage {
         OodSessionPara { session_id }: Self::SessionPara,
     ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::ExtOodAppErr>
     {
-        b.cf(&OodInfo::new("Hey!", "About to take a photo - ready?"))
+        // test Json shared Bytes
+        b.cf(&OodInfo::new("Hey!", "About to take a photo - ready?")?)
             .await?;
-        let image = b.cf(&OodTakeImage::new(&OodCameraSide::Front)).await?;
+        let image = b.cf(&OodTakeImage::new(&OodCameraSide::Front)?).await?;
         println!("Got it!");
         fs::write("image.jpg", image.p()?).unwrap();
         Ok(b.finished().await)

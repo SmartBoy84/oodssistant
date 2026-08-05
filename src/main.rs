@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, str::FromStr};
 
+use oauth2::http::HeaderValue;
+
 use crate::{
     bark::builder::BarkClientBuilder, brain::{Ood, pages::Homepage}, gcal::GoogleCalendar,     server::{
         OodServer,
@@ -25,6 +27,7 @@ const OOD_CALENDAR_NAME: &str = "Ood";
 
 #[tokio::main]
 async fn main() {
+    println!("{}", HeaderValue::from_str("123").unwrap().to_str().unwrap());
     // let gcal = GoogleCalendar::builder(
     //     GOOGLE_CLIENT_ID,
     //     GOOGLE_CLIENT_SECRET,

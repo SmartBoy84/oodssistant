@@ -13,11 +13,9 @@ use tokio::time::Instant;
 use warp::reply::Reply;
 
 use crate::server::{
-    OodReqErr, OodSession, OodSessionContainer, SessionId,
-    interface::{
-        OodPayload, OodReplyType,
-        page::{IsOodSessionPara, OodPagePara, OodPageSession},
-    },
+    OodPayload, OodReqErr, OodSession, OodSessionContainer, SessionId, interface::{
+        ExtOodAppErr, OodReplyType, external::OodResponse, page::{IsOodSessionPara, OodPagePara, OodPageSession},
+    }, request::{OodHeaderReq, OodReqMaker},
 };
 
 #[serde_as]
@@ -67,7 +65,33 @@ pub async fn new_session<P: OodPagePara, S: OodPageSession<P>>(
     Ok(first_res?)
 }
 
-pub async fn get_session_cache(
+pub async fn make_response<T: OodReqMaker>(
+    p: OodPayload,
+    session: &mut OodSession,
+    id: &SessionId,
+) -> Result<warp::reply::Response, warp::reject::Rejection> {
+    match T::make(&p, id) {
+        Ok(r) => {
+            session.last_payload = Some(p);
+            Ok(r)
+        }
+        Err(e) => {
+            // pretty nifty - due to my step-by-step comm, downcast here is OK
+            let ext_e = OodReqErr::BackendErr(ExtOodAppErr::InternalParseError(e.to_string()));
+            session.send(Err(e)).await?;
+
+            // 1. cache presentation path:
+            //      we are going to report back that cache presentation failed - backend expects to be able to act on this
+            //      the bridge will exit and the receiver must fill again => this is CORRECT
+            // 2. regular path
+            //      client has already sent the message - if an error occurs then the message stream has progressed so the client must be "stepped" forwards
+            session.last_payload = None;
+            Err(ext_e.into())
+        }
+    }
+}
+
+pub async fn get_session_cache<T: OodReqMaker>(
     session_id: SessionId,
     sessions: OodSessionContainer,
 ) -> Result<warp::reply::Response, warp::reject::Rejection> {
@@ -78,10 +102,8 @@ pub async fn get_session_cache(
         .get_mut(&session_id)
         .ok_or(OodReqErr::SessionNotFound)?;
 
-    match &session.last_payload {
-        Some(cached_payload) => cached_payload.make_response(),
-        None => Err(warp::reject::custom(OodReqErr::EmptyCache)),
-    }
+    let r = session.last_payload.take().ok_or(OodReqErr::EmptyCache)?;
+    make_response::<T>(r, session, &session_id).await
 }
 
 pub async fn session_handler(
@@ -100,29 +122,24 @@ pub async fn session_handler(
     println!("comm [{session_id}]");
 
     if let Some(body) = body {
-        session.send(OodPayload { body, content_type }).await? // if not, we are in an initial request
-    } else {
-        session.last_change = Instant::now(); // i.e., last time this endpoint was queried
+        session.send(Ok(OodResponse { body, content_type })).await? // if not, we are in an initial request
     }
 
+    session.last_change = Instant::now(); // i.e., last time this endpoint was queried
     let res = session.recv().await?;
 
     match res {
+        // communication flow is get -> post -> headers
+        // session_handler is only called when there is a post request, initial request or HEAD request
         OodReplyType::Payload(payload) => {
-            /*
-            WILL ENCODE BACKEND ERROR HERE AS WELL THROUGH ABSTRACTION AROUND OODPAYLOADGETTER
-            */
-
-            let s = payload.make_response();
-            session.last_payload = Some(payload);
-            return s;
+            make_response::<OodHeaderReq>(payload, session, &session_id).await
         }
 
         // don't need to set last_payload = None in the following because for all of these the page function must have returned OodFinished (task has ended)
         OodReplyType::Finished => Ok(warp::reply().into_response()),
         OodReplyType::InternalRedirect(s_id) => {
             drop(session_guard); // V IMPORTANT! Else will dead-lock
-            Ok(get_session_cache(s_id, sessions).await?)
+            Ok(get_session_cache::<OodHeaderReq>(s_id, sessions).await?)
         }
         OodReplyType::ExternalRedirect(u) => Ok(warp::redirect::see_other(
             warp::http::Uri::from_str(&u).expect("bad external redir url?"),

@@ -4,12 +4,9 @@ use std::{
 };
 
 use crate::server::{
-    handlers::{get_session_cache, session_handler},
-    interface::{ExtOodAppErr, OodPayload, OodReplyType},
+    handlers::{get_session_cache, session_handler}, interface::{ExtOodAppErr, OodReplyType, external::OodResponse}, request::{OodPayload, OodStandardReq},
 };
 use mime::Mime;
-use oauth2::http::HeaderValue;
-use reqwest::header::CONTENT_LENGTH;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc},
@@ -17,11 +14,12 @@ use tokio::{
     time::Instant,
 };
 
-use warp::{Filter, reply::Reply};
+use warp::Filter;
 
 pub mod builder;
 pub mod handlers;
 pub mod interface;
+pub mod request;
 
 // run janitor every minute
 const CLEANUP_PERIOD: Duration = Duration::from_secs(60);
@@ -31,14 +29,15 @@ const JSON_MAX_LENGTH: u64 = 1024 * 16;
 
 const SESSION_PART: &str = "session";
 const ITEM_HEADER: &str = "ood-item";
-const ACTION_HEADER: &str = "odd-action";
+const ACTION_HEADER: &str = "ood-action";
+const ID_HEADER: &str = "ood-id";
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone)]
-pub struct SessionId(String);
+pub struct SessionId(Arc<String>);
 
 impl From<String> for SessionId {
     fn from(value: String) -> Self {
-        Self(value)
+        Self(Arc::new(value))
     }
 }
 
@@ -54,7 +53,25 @@ impl Display for SessionId {
         write!(f, "{}", self.0)
     }
 }
-type OodSessionContainer = Arc<Mutex<HashMap<SessionId, OodSession>>>;
+
+#[derive(Default, Clone)]
+pub struct OodSessionContainer {
+    inner: Arc<Mutex<HashMap<SessionId, OodSession>>>,
+}
+impl OodSessionContainer {
+    pub async fn evict_session(&self, s: &SessionId) {
+        if let Some(s) = self.inner.lock().await.remove(s) {
+            s.end();
+        }
+    }
+}
+
+impl Deref for OodSessionContainer {
+    type Target = Arc<Mutex<HashMap<SessionId, OodSession>>>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
 
 pub struct OodServer {
     sessions: OodSessionContainer,
@@ -64,13 +81,19 @@ pub struct OodServer {
 
 pub struct OodSession {
     rx: mpsc::Receiver<OodReplyType>,
-    tx: mpsc::Sender<OodPayload>,
-    last_payload: Option<Box<dyn OodPayloadResponder>>,
+    tx: mpsc::Sender<Result<OodResponse, Box<dyn Error + Sync + Send>>>,
+    last_payload: Option<OodPayload>,
     last_change: Instant,
     task: JoinHandle<()>,
 }
 
-#[derive(Error, Debug)]
+impl OodSession {
+    fn end(self) {
+        self.task.abort();
+    }
+}
+
+#[derive(Error, Debug, Clone)]
 enum OodReqErr {
     #[error("session task crashed")]
     SessionTaskEnded,
@@ -86,59 +109,6 @@ enum OodReqErr {
 
     #[error("cache is empty")]
     EmptyCache,
-}
-
-/*
-Model
-
-Headers:
-ood-action: OodAction::Name - action type (e.g., save file, delete file, take picture etc)
-ood-item: OodAction::Item - primary action subject (e.g., filename, alert title)
-
-response data: auxilliary data - (e.g., alert description, file binary data etc)
-
-*/
-pub trait OodPayloadResponder: Send + Sync {
-    fn make_response(&self) -> Result<warp::reply::Response, warp::reject::Rejection>;
-}
-
-pub trait OodPayloadGetter: Send + Sync {
-    type StreamErr: Error; // "outer" error
-
-    // streaming para
-    type E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static; // e.g., failed to open file etc
-    type B: Into<bytes::Bytes>;
-    type S: futures_util::Stream<Item = Result<Self::B, Self::E>> + Send + Sync + 'static;
-
-    fn get_item(&self) -> HeaderValue; // creating a HeaderValue requires parsing and copying &str but this is done on this trait user's side
-    fn get_action(&self) -> HeaderValue;
-    fn get_data(&self) -> Result<Self::S, Self::StreamErr>;
-    fn len(&self) -> Option<usize>; // make None specification explicit
-}
-
-impl<T: OodPayloadGetter> OodPayloadResponder for T {
-    fn make_response(&self) -> Result<warp::reply::Response, warp::reject::Rejection> {
-        let mut res = match self.get_data() {
-            Err(e) => {
-                return Err(warp::reject::custom(OodReqErr::BackendErr(
-                    ExtOodAppErr::InternalParseError(e.to_string()),
-                )));
-            }
-            Ok(r) => warp::reply::stream(r),
-        }
-        .into_response();
-
-        if let Some(len) = self.len() {
-            res.headers_mut().insert(CONTENT_LENGTH, len.into());
-        }
-
-        res.headers_mut().insert(ACTION_HEADER, self.get_action());
-        res.headers_mut().insert(ITEM_HEADER, self.get_item());
-
-        // TODO; content-type?
-
-        Ok(res)
-    }
 }
 
 impl warp::reject::Reject for OodReqErr {}
@@ -163,7 +133,10 @@ async fn janitor_task(sessions: OodSessionContainer, run_period: Duration, expir
 }
 
 impl OodSession {
-    async fn send(&self, p: OodPayload) -> Result<(), warp::Rejection> {
+    async fn send(
+        &self,
+        p: Result<OodResponse, Box<dyn Error + Sync + Send>>,
+    ) -> Result<(), warp::Rejection> {
         self.tx
             .send(p)
             .await
@@ -201,7 +174,13 @@ impl OodServer {
             let get_session_route = session_base
                 .clone()
                 .and(warp::get())
-                .and_then(get_session_cache);
+                .and_then(get_session_cache::<OodStandardReq>); // as per my communication flow, this is the only way to get actual data
+
+            // HEAD request
+            let head_session_route = session_base
+                .clone()
+                .and(warp::head())
+                .and_then(|s_id, s_c| session_handler(s_id, s_c, None, None));
 
             // drive forwards
             let post_session_route = session_base
@@ -210,7 +189,9 @@ impl OodServer {
                 .and(warp::header::optional::<Mime>("content-type"))
                 .and_then(session_handler);
 
-            get_session_route.or(post_session_route)
+            get_session_route
+                .or(post_session_route)
+                .or(head_session_route)
         };
 
         let server_path = session_filter.or(p).with(warp::log::custom(|info| {

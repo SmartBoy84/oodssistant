@@ -61,7 +61,7 @@ impl OodPageHandler<&'static str, ()> for OodStaticPageHandler {
             .trim_start_matches('/')
             .trim_end_matches('/');
 
-        let mut path = warp::get().boxed();
+        let mut path = warp::any().boxed();
         if url.len() > 0 {
             path = path.and(warp::path(url)).boxed();
         };

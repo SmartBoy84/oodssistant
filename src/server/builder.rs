@@ -1,6 +1,5 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
-use tokio::sync::Mutex;
 use uuid::Uuid;
 use warp::Filter;
 
@@ -23,7 +22,7 @@ impl OodServerBuilder {
         Self {
             server_uri,
             route: EmptyRoute,
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            sessions: Default::default(),
         }
     }
 }
@@ -94,6 +93,7 @@ pub fn new_session_path<P: OodPage>(
     let para_handler = P::ParaHandler::para_extractor(para_settings);
 
     para_handler
+        .and(warp::head()) // page route will always be a HEAD request
         .and(warp::path::end())
         .and(warp::any().map(move || page.clone()))
         .and(warp::any().map(|| Into::<SessionId>::into(Uuid::new_v4().to_string())))
