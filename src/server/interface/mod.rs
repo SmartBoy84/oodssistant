@@ -7,7 +7,7 @@ use crate::server::{
     OodPayload, SessionId,
     interface::{
         external::{OodParse, OodPayloadParseError},
-        internal::{OodAction, OodActionType, ToOodItemHeader},
+        internal::{OodAction, OodActionType, TryToOodBytes},
     },
     request::OodPayloadStreamer,
 };
@@ -27,9 +27,9 @@ pub enum OodReplyType {
 }
 
 #[derive(Debug, Error)]
-pub enum IntOodParseErr<A: OodAction> {
+pub enum IntOodParseErr<'a, A: OodAction + 'a> {
     #[error(transparent)]
-    ItemParseErr(<A::Item as ToOodItemHeader<A::Item>>::Err),
+    ItemParseErr(<A::Item<'a> as TryToOodBytes>::E),
     #[error("invalid header value")]
     InvalidHeaderValue,
     #[error(transparent)]
@@ -37,16 +37,17 @@ pub enum IntOodParseErr<A: OodAction> {
 }
 
 // this is the internal error type (inside the handler)
+// UGH, `'a` needed because error may borrow from input
 #[derive(Error)]
-pub enum IntOodAppErr<A: OodAction> {
+pub enum IntOodAppErr<'a, A: OodAction> {
     #[error(transparent)]
-    InternalParseErr(IntOodParseErr<A>), // can't figure out how to get ...::E into here as well
+    InternalParseErr(IntOodParseErr<'a, A>), // can't figure out how to get ...::E into here as well
     #[error(transparent)]
     ExternalParseErr(OodPayloadParseError<<A::Reply as OodParse>::E>),
 }
 
-impl<A: OodAction> From<IntOodParseErr<A>> for IntOodAppErr<A> {
-    fn from(value: IntOodParseErr<A>) -> Self {
+impl<'a, A: OodAction + 'a> From<IntOodParseErr<'a, A>> for IntOodAppErr<'a, A> {
+    fn from(value: IntOodParseErr<'a, A>) -> Self {
         Self::InternalParseErr(value)
     }
 }
@@ -68,7 +69,7 @@ pub struct OodPayloadItem<'a, T: Serialize> {
     item: &'a T,
 }
 
-impl<A: OodAction> From<IntOodAppErr<A>> for ExtOodAppErr {
+impl<'a, A: OodAction> From<IntOodAppErr<'a, A>> for ExtOodAppErr {
     fn from(value: IntOodAppErr<A>) -> Self {
         match value {
             IntOodAppErr::InternalParseErr(e) => ExtOodAppErr::InternalParseError(e.to_string()),
@@ -77,7 +78,7 @@ impl<A: OodAction> From<IntOodAppErr<A>> for ExtOodAppErr {
     }
 }
 
-impl<A: OodAction> From<&IntOodAppErr<A>> for ExtOodAppErr {
+impl<'a, A: OodAction + 'a> From<&IntOodAppErr<'a, A>> for ExtOodAppErr {
     fn from(value: &IntOodAppErr<A>) -> Self {
         match value {
             IntOodAppErr::InternalParseErr(e) => ExtOodAppErr::InternalParseError(e.to_string()),

@@ -60,22 +60,25 @@ impl OodBridge {
     pub async fn rx(&mut self) -> GenericResult<OodResponse> {
         self.in_rx.recv().await.expect("channel closed")
     }
-    pub async fn comm<A: OodAction>(
+    pub async fn comm<'a, A: OodAction>(
         &mut self,
         payload: &LinkedOodReply<A>,
-    ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>> {
+    ) -> Result<OodPayloadParser<A>, IntOodAppErr<'a, A>>
+    where
+        A: 'a,
+    {
         // foundational communication method - in -> out -> ...
         self.tx(OodReplyType::Payload(payload.inner())).await; // cloning bytes is cheap - increment ref count
         let inner = self.rx().await.map_err(|e| e.downcast::<<<A::ActionType as OodActionType>::Data as OodPayloadStreamer>::StreamErr>().expect("failed downcasting")).map_err(IntOodParseErr::PayloadErr).map_err(IntOodAppErr::InternalParseErr)?;
         Ok(OodPayloadParser::new(inner))
     }
 
-    pub async fn cf<A>(
+    pub async fn cf<'a, A>(
         &mut self,
         payload: &LinkedOodReply<A>,
-    ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>>
+    ) -> Result<OodPayloadParser<A>, IntOodAppErr<'a, A>>
     where
-        A: OodAction,
+        A: OodAction + 'a,
     {
         self.comm(payload).await
     }

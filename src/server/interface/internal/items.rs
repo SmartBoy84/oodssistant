@@ -1,78 +1,79 @@
-use std::{borrow::Cow, convert::Infallible, marker::PhantomData};
+use std::{borrow::Cow, convert::Infallible, fmt::Display};
 
-use oauth2::http::HeaderValue;
-use reqwest::header::InvalidHeaderValue;
+use bytes::Bytes;
 use serde::Serialize;
-use warp::reply::Json;
 
-use crate::server::interface::{
-    elements::{OodCameraSide, OodStopwatchAction},
-    internal::ToOodItemHeader,
-};
+use crate::server::interface::internal::TryToOodBytes;
 
-pub struct OodItem<T> {
-    h: HeaderValue,
-    _t: PhantomData<fn(&T)>,
+// wrapper to simplify implementation (so that I don't have to implement TryToOodBytes each time) for enume T: Into<'static str>
+pub struct OodEnumItem<T: Into<&'static str>>(T);
+impl<T: Into<&'static str>> From<T> for OodEnumItem<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
 }
-
-impl<T> OodItem<T> {
-    fn new(h: HeaderValue) -> Self {
-        Self { h, _t: PhantomData }
+impl<T: Into<&'static str>> TryToOodBytes for OodEnumItem<T> {
+    type E = Infallible;
+    fn to_ood_bytes(self) -> Result<bytes::Bytes, Self::E> {
+        Ok(bytes::Bytes::from_static(self.0.into().as_bytes()))
     }
 }
 
-impl<T> From<OodItem<T>> for HeaderValue {
-    fn from(value: OodItem<T>) -> Self {
-        value.h
+// wrapper for T: Display
+pub struct OodDisplayItem<T: Display>(T);
+impl<T: Display> From<T> for OodDisplayItem<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+impl<T: Display> TryToOodBytes for OodDisplayItem<T> {
+    type E = Infallible;
+    fn to_ood_bytes(self) -> Result<bytes::Bytes, Self::E> {
+        Ok(self.0.to_string().into())
     }
 }
 
-pub struct JsonItem {
-    inner: String,
+pub struct JsonItem<T: Serialize>(T);
+impl<T: Serialize> TryToOodBytes for JsonItem<T> {
+    type E = serde_json::Error;
+    fn to_ood_bytes(self) -> Result<Bytes, Self::E> {
+        serde_json::to_vec(&self.0).map(Bytes::from)
+    }
 }
-impl<T: Serialize> TryFrom<T> for JsonItem {
-    type Error = serde_json::Error;
-    fn try_from(value: T) -> Result<Self, Self::Error> {
-        Ok(Self {
-            inner: serde_json::to_string(&value)?,
+
+impl<T: Serialize> From<T> for JsonItem<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: Into<Cow<'static, str>>> TryToOodBytes for T {
+    type E = Infallible;
+    fn to_ood_bytes(self) -> Result<bytes::Bytes, Self::E> {
+        Ok(match self.into() {
+            Cow::Borrowed(value) => Bytes::from_static(value.as_bytes()),
+            Cow::Owned(value) => Bytes::from_owner(value),
         })
     }
 }
 
-impl<T: Serialize> ToOodItemHeader for JsonItem<T> {
-    type IntoErr = serde_json::Error;
-    fn to_header(self) -> Result<HeaderValue, InvalidHeaderValue> {
-        HeaderValue::try_from(self.inner)
+pub enum OodOptionalItem<T: TryToOodBytes> {
+    Some(T),
+    None,
+}
+impl<T: TryToOodBytes> From<Option<T>> for OodOptionalItem<T> {
+    fn from(value: Option<T>) -> Self {
+        value
+            .map(OodOptionalItem::Some)
+            .unwrap_or(OodOptionalItem::None)
     }
 }
-
-impl ToOodItemHeader for &'static str {
-    type IntoErr = Infallible;
-    fn to_header(self) -> Result<HeaderValue, InvalidHeaderValue> {
-        Ok(HeaderValue::from_static(self))
-    }
-}
-impl ToOodItemHeader for Cow<'static, str> {
-    type IntoErr = Infallible;
-    fn to_header(self) -> Result<HeaderValue, InvalidHeaderValue> {
-        let v = match self {
-            Self::Borrowed(b) => HeaderValue::from_static(b),
-            Cow::Owned(b) => HeaderValue::try_from(b)?,
-        };
-        Ok(v)
-    }
-}
-
-impl ToOodItemHeader for OodCameraSide {
-    type IntoErr = Infallible;
-    fn to_header(self) -> Result<HeaderValue, InvalidHeaderValue> {
-        Ok(HeaderValue::from_static(self.into()))
-    }
-}
-
-impl ToOodItemHeader for OodStopwatchAction {
-    type IntoErr = Infallible;
-    fn to_header(self) -> Result<HeaderValue, InvalidHeaderValue> {
-        Ok(HeaderValue::from_static(self.into()))
+impl<T: TryToOodBytes> TryToOodBytes for OodOptionalItem<T> {
+    type E = T::E;
+    fn to_ood_bytes(self) -> Result<bytes::Bytes, Self::E> {
+        Ok(match self {
+            Self::None => bytes::Bytes::new(),
+            Self::Some(t) => t.to_ood_bytes()?,
+        })
     }
 }

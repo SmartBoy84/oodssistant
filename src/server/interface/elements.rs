@@ -1,11 +1,15 @@
 use std::{borrow::Cow, marker::PhantomData, time::Duration};
 
 use serde::Serialize;
-use strum::{EnumString, IntoStaticStr, VariantNames};
+use strum::IntoStaticStr;
 
 use crate::server::interface::{
     external::responses::{ImageWrapper, OodOptional},
-    internal::{HasData, NoData, OodAction, payloads::MemStreamer},
+    internal::{
+        HasData, NoData, OodAction,
+        items::{JsonItem, OodDisplayItem, OodEnumItem, OodOptionalItem},
+        payloads::MemStreamer,
+    },
 };
 
 #[derive(Debug, IntoStaticStr)]
@@ -18,7 +22,7 @@ pub enum OodCameraSide {
 pub struct OodTakeImage;
 impl OodAction for OodTakeImage {
     const NAME: &'static str = "image";
-    type Item = OodCameraSide;
+    type Item<'a> = OodEnumItem<OodCameraSide>;
     type Reply = ImageWrapper;
     type ActionType = NoData;
 }
@@ -26,7 +30,7 @@ impl OodAction for OodTakeImage {
 pub struct OodMemWrite; // get unique device id (persistent)
 impl OodAction for OodMemWrite {
     const NAME: &'static str = "mem_write";
-    type Item = Cow<'static, str>; // file name
+    type Item<'a> = Cow<'static, str>; // file name
     type Reply = ();
     type ActionType = HasData<MemStreamer<str>>; // file data
 }
@@ -34,7 +38,7 @@ impl OodAction for OodMemWrite {
 pub struct OodMemRead; // get unique device id (persistent)
 impl OodAction for OodMemRead {
     const NAME: &'static str = "mem_read";
-    type Item = Cow<'static, str>; // file name
+    type Item<'a> = Cow<'static, str>; // file name
     type Reply = OodOptional<str>;
     type ActionType = NoData;
 }
@@ -42,7 +46,7 @@ impl OodAction for OodMemRead {
 pub struct OodMemDelete; // get unique device id (persistent)
 impl OodAction for OodMemDelete {
     const NAME: &'static str = "mem_delete";
-    type Item = Cow<'static, str>; // file name
+    type Item<'a> = Cow<'static, str>; // file name
     type Reply = ();
     type ActionType = NoData;
 }
@@ -51,7 +55,7 @@ impl OodAction for OodMemDelete {
 pub struct OodOpenUri;
 impl OodAction for OodOpenUri {
     const NAME: &'static str = "uri";
-    type Item = Cow<'static, str>;
+    type Item<'a> = Cow<'static, str>;
     type Reply = (); // iOS shortcuts won't forget this, but don't leave me hanging on other things!!
     type ActionType = NoData;
 }
@@ -59,7 +63,7 @@ impl OodAction for OodOpenUri {
 pub struct OodInfo;
 impl OodAction for OodInfo {
     const NAME: &'static str = "info";
-    type Item = Cow<'static, str>; // interesting! we do this here, because we always use &Item (with &str it would become &&str)
+    type Item<'a> = Cow<'static, str>; // interesting! we do this here, because we always use &Item<'a> (with &str it would become &&str)
     type Reply = ();
     type ActionType = HasData<MemStreamer<str>>;
 }
@@ -71,12 +75,15 @@ where
     T: Serialize + AsRef<str>,
 {
     const NAME: &'static str = "button";
-    type Item = [T]; // (name, return value)
+    type Item<'a>
+        = JsonItem<&'a [T]>
+    where
+        T: 'a; // (name, return value)
     type Reply = str; // shortcut limitation/simplification - no text back is an error (i.e., not optional)
     type ActionType = HasData<MemStreamer<str>>;
 }
 pub struct OodTimer; // start a timer on the device
-#[derive(Serialize)]
+#[derive(derive_more::Display)]
 pub struct Seconds(u64);
 impl From<Duration> for Seconds {
     fn from(value: Duration) -> Self {
@@ -86,7 +93,7 @@ impl From<Duration> for Seconds {
 
 impl OodAction for OodTimer {
     const NAME: &'static str = "timer";
-    type Item = Option<Seconds>; // None - deactivate timer
+    type Item<'a> = OodOptionalItem<OodDisplayItem<Seconds>>; // None - deactivate timer
     type Reply = ();
     type ActionType = NoData;
 }
@@ -101,7 +108,7 @@ pub enum OodStopwatchAction {
 }
 impl OodAction for OodStopwatch {
     const NAME: &'static str = "stopwatch";
-    type Item = OodStopwatchAction;
+    type Item<'a> = OodEnumItem<OodStopwatchAction>;
     type Reply = str;
     type ActionType = NoData;
 }
@@ -110,7 +117,7 @@ pub struct OodTextInput;
 
 impl OodAction for OodTextInput {
     const NAME: &'static str = "text_input";
-    type Item = Cow<'static, str>; // default value (if editing)
+    type Item<'a> = Cow<'static, str>; // default value (if editing)
     type Reply = OodOptional<str>; // shortcut limitation/simplification
     type ActionType = HasData<MemStreamer<str>>;
 }

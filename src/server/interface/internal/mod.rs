@@ -4,36 +4,39 @@ pub mod payloads;
 use std::{marker::PhantomData, sync::Arc};
 
 use oauth2::http::HeaderValue;
-use reqwest::header::InvalidHeaderValue;
+use thiserror::Error;
 
 use crate::server::{
     interface::{IntOodAppErr, IntOodParseErr, external::OodParse},
     request::{OodPayload, OodPayloadGetter, OodPayloadStreamer},
 };
 
-pub enum OodItemErr<T: ToOodItemHeader> {
+#[derive(Debug, Error)]
+pub enum OodItemErr<T: TryToOodBytes> {
     InvalidHeader,
-    ItemParseErr(T::IntoErr),
+    ItemParseErr(T::E),
 }
 
-pub trait ToOodItemHeader {
-    type IntoErr: std::error::Error; // parse error
-    fn to_header(self) -> Result<HeaderValue, InvalidHeaderValue>;
+pub trait TryToOodBytes {
+    type E: std::error::Error;
+    fn to_ood_bytes(self) -> Result<bytes::Bytes, Self::E>;
 }
 
-fn new_reply<A: OodAction, T>(
+fn new_reply<'a, A: OodAction, T>(
     data: <A::ActionType as OodActionType>::Data,
     item: T,
-) -> Result<LinkedOodReply<A>, IntOodAppErr<A>>
+) -> Result<LinkedOodReply<A>, IntOodAppErr<'a, A>>
 where
+    A: 'a,
     A: Sized,
-    T: TryInto<A::Item, Error = <A::Item as ToOodItemHeader>::IntoErr>,
+    T: Into<A::Item<'a>>,
 {
-    let item = item
-        .try_into()
-        .map_err(IntOodParseErr::ItemParseErr)?
-        .to_header()
-        .map_err(|_| IntOodParseErr::InvalidHeaderValue)?;
+    let item = HeaderValue::from_maybe_shared(
+        item.into()
+            .to_ood_bytes()
+            .map_err(IntOodParseErr::ItemParseErr)?,
+    )
+    .map_err(|_| IntOodParseErr::InvalidHeaderValue)?;
 
     Ok(LinkedOodReply::new(OodReply {
         action: HeaderValue::from_static(A::NAME),
@@ -43,23 +46,24 @@ where
 }
 
 pub trait OodActionHasData: OodAction {
-    fn new<T, K>(data: T, item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<Self>>
+    fn new<'a, T, K>(data: T, item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<'a, Self>>
     where
+        Self: 'a,
         <Self::ActionType as OodActionType>::Data: From<T>,
         Self: Sized,
-        K: TryInto<Self::Item, Error = <Self::Item as ToOodItemHeader>::IntoErr>,
+        K: Into<Self::Item<'a>>,
     {
         new_reply::<_, _>(data.into(), item)
     }
 }
 
 pub trait OodActionHasNoData: OodAction {
-    fn new<K>(item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<Self>>
+    fn new<'a, K>(item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<'a, Self>>
     where
-        Self: Sized,
+        Self: Sized + 'a,
         Self::ActionType: OodActionType<Data = ()>,
         <Self::ActionType as OodActionType>::Data: From<()>,
-        K: TryInto<Self::Item, Error = <Self::Item as ToOodItemHeader>::IntoErr>,
+        K: Into<Self::Item<'a>>,
     {
         new_reply::<_, _>((), item)
     }
@@ -83,7 +87,10 @@ impl<S, T: OodAction<ActionType = HasData<S>>> OodActionHasData for T {}
 
 pub trait OodAction {
     const NAME: &'static str;
-    type Item: ToOodItemHeader;
+    type Item<'a>: TryToOodBytes
+    where
+        Self: 'a;
+    // include a lifetime to allow for borrowing
 
     type Reply: OodParse + ?Sized;
     type ActionType: OodActionType;
