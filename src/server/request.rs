@@ -72,9 +72,9 @@ pub trait OodPayloadGetter: Send + Sync {
         // couldn't find an easy way to cache so we clone instead
         res.headers_mut()
             .insert(ACTION_HEADER, self.get_action().clone());
-        println!("{:?}", self.get_item().to_str().unwrap());
         res.headers_mut()
             .insert(ITEM_HEADER, self.get_item().clone());
+        println!("{:?}", self.get_item().clone());
         res.headers_mut().insert(
             ID_HEADER,
             HeaderValue::from_str(&id).expect("non-ascii session id?"),

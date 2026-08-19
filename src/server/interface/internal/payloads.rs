@@ -23,13 +23,21 @@ impl OodPayloadStreamer for () {
     }
 }
 
-pub struct MemStreamer<T: ?Sized> {
+pub struct SharedBytes<T: ?Sized> {
     inner: Bytes,
     p: PhantomData<fn(&T)>, // use fn(&T) to make it not owning (-> T can be not Send but MemStreamer is)
 }
-impl<T: ?Sized, U> From<U> for MemStreamer<T>
+impl<T: ?Sized> Clone for SharedBytes<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            p: PhantomData,
+        }
+    }
+}
+impl<T: ?Sized, U> From<U> for SharedBytes<T>
 where
-    U: Into<bytes::Bytes> + AsRef<T>,
+    U: Into<bytes::Bytes> + AsRef<T>, // WARNING; + AsRef<T> is NEEDED to statically enforce that you create SharedBytes from correct origin type
 {
     fn from(value: U) -> Self {
         Self {
@@ -40,7 +48,7 @@ where
     }
 }
 
-impl<T: ?Sized + 'static> OodPayloadStreamer for MemStreamer<T> {
+impl<T: ?Sized + 'static> OodPayloadStreamer for SharedBytes<T> {
     type StreamErr = Infallible;
     type E = Infallible;
     type B = Bytes;

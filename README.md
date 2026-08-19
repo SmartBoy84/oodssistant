@@ -25,6 +25,13 @@ KISS - KEEP IT GOD DAYUM SIMPLE STUPID
 2. Determine a way to store task state with ID
 3. Internal redirect should use the same ID
 
+# TODO
+- Switch Item to parser pattern (e.g., parser object itself doesn't hold ownership)
+
+# API Notes
+## Shortcuts elements
+- For SharedBytes you can instantiate the SharedBytes first if you want to re-use
+
 # Examples
 ```rust
 #[derive(Clone)]

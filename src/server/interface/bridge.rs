@@ -29,23 +29,6 @@ pub struct OodBridge {
     in_rx: mpsc::Receiver<Result<OodResponse, Box<dyn std::error::Error + Sync + Send>>>,
 }
 
-pub struct OodReq<'a, A: OodAction> {
-    b: &'a mut OodBridge,
-    raw: LinkedOodReply<A>, // immutable, ref-counted buffer
-}
-
-/*
-Motivation:
-1. Bridge::n() -> returns OodReq => can save this somewhere to avoid repeated serialisation
-2. However separating into OodReq allows also for my_bridge.n(...).cf(...).p(...) to be run! So you go from OodBridge -> OodReq (parse request) => OodPayloadParser (get reply) -> T (parse reply)
-*/
-impl<'a, A: OodAction> OodReq<'a, A> {
-    // all subsequent comms are: out -> in
-    pub async fn c(&'a mut self) -> Result<OodPayloadParser<A>, IntOodAppErr<A>> {
-        self.b.comm(&self.raw).await
-    }
-}
-
 impl OodBridge {
     pub fn new(
         out_tx: mpsc::Sender<OodReplyType>,
@@ -63,7 +46,7 @@ impl OodBridge {
     pub async fn comm<'a, A: OodAction>(
         &mut self,
         payload: &LinkedOodReply<A>,
-    ) -> Result<OodPayloadParser<A>, IntOodAppErr<'a, A>>
+    ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>>
     where
         A: 'a,
     {
@@ -73,21 +56,14 @@ impl OodBridge {
         Ok(OodPayloadParser::new(inner))
     }
 
-    pub async fn cf<'a, A>(
+    pub async fn cf<A>(
         &mut self,
         payload: &LinkedOodReply<A>,
-    ) -> Result<OodPayloadParser<A>, IntOodAppErr<'a, A>>
+    ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>>
     where
-        A: OodAction + 'a,
+        A: OodAction,
     {
         self.comm(payload).await
-    }
-
-    pub async fn n<A: OodAction>(&mut self, raw: &LinkedOodReply<A>) -> OodReq<'_, A> {
-        OodReq {
-            b: self,
-            raw: raw.clone(),
-        }
     }
 
     pub async fn external_redirect(self, uri: Cow<'static, str>) -> OodFinished {

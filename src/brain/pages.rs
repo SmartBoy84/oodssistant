@@ -1,23 +1,24 @@
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsStr,
     fs,
+    ops::Deref,
+    path::Path,
     sync::{
         Arc,
         mpsc::{Receiver, Sender},
     },
+    time::Duration,
 };
 
+use bytes::Bytes;
 use tokio::sync::Mutex;
 
 use crate::server::{
     SessionId,
     interface::{
-        OodAction, OodActionHasData, OodActionHasNoData,
-        elements::{
-            OodButtonList, OodCameraSide, OodInfo, OodMemDelete, OodMemRead, OodMemWrite,
-            OodOpenUri, OodStopwatch, OodStopwatchAction, OodTakeImage, OodTextInput, OodTimer,
-            Seconds,
-        },
+        elements::{OodButtonList, OodInfo, OodStopwatch, OodStopwatchAction, OodTimer},
+        internal::{OodActionHasData, OodActionHasNoData, payloads::SharedBytes},
         page::{OodPageSession, OodSessionPara, basic::OodBasicPage, para::OodParaPage},
     },
 };
@@ -42,12 +43,13 @@ impl OodPageSession<()> for Homepage {
         OodSessionPara { session_id }: Self::SessionPara,
     ) -> Result<crate::server::interface::bridge::OodFinished, crate::server::interface::ExtOodAppErr>
     {
-        // test Json shared Bytes
-        b.cf(&OodInfo::new("Hey!", "About to take a photo - ready?")?)
+        let s = SharedBytes::from(String::from("123"));
+        b.cf(&OodInfo::new(s, "123")?).await?;
+        b.cf(&OodStopwatch::new(OodStopwatchAction::Reset)?).await?;
+        b.cf(&OodTimer::new(Some(Duration::from_secs(1).into()))?)
             .await?;
-        let image = b.cf(&OodTakeImage::new(&OodCameraSide::Front)?).await?;
-        println!("Got it!");
-        fs::write("image.jpg", image.p()?).unwrap();
+        b.cf(&OodButtonList::new("test", &["1"])?).await?;
+
         Ok(b.finished().await)
     }
 }

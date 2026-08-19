@@ -13,9 +13,13 @@ use tokio::time::Instant;
 use warp::reply::Reply;
 
 use crate::server::{
-    OodPayload, OodReqErr, OodSession, OodSessionContainer, SessionId, interface::{
-        ExtOodAppErr, OodReplyType, external::OodResponse, page::{IsOodSessionPara, OodPagePara, OodPageSession},
-    }, request::{OodHeaderReq, OodReqMaker},
+    OodPayload, OodReqErr, OodSession, OodSessionContainer, SessionId,
+    interface::{
+        ExtOodAppErr, OodReplyType,
+        external::OodResponse,
+        page::{IsOodSessionPara, OodPagePara, OodPageSession},
+    },
+    request::{OodHeaderReq, OodReqMaker},
 };
 
 #[serde_as]
@@ -122,7 +126,12 @@ pub async fn session_handler(
     println!("comm [{session_id}]");
 
     if let Some(body) = body {
-        session.send(Ok(OodResponse { body, content_type })).await? // if not, we are in an initial request
+        session
+            .send(Ok(OodResponse {
+                body,
+                content_type,
+            }))
+            .await? // if not, we are in an initial request
     }
 
     session.last_change = Instant::now(); // i.e., last time this endpoint was queried

@@ -19,22 +19,27 @@ pub enum OodItemErr<T: TryToOodBytes> {
 
 pub trait TryToOodBytes {
     type E: std::error::Error;
-    fn to_ood_bytes(self) -> Result<bytes::Bytes, Self::E>;
+    type O<'a>
+    where
+        Self: 'a;
+
+    // please note that the following is after MANY conceptual iterations, *everything* is intentional (e.g., `s: Self` instead of `self`)
+    fn to_ood_bytes<'a>(s: Self::O<'a>) -> Result<bytes::Bytes, Self::E>
+    where
+        Self: 'a; // FINALLY figured it out: `s: Self` ()
 }
 
 fn new_reply<'a, A: OodAction, T>(
     data: <A::ActionType as OodActionType>::Data,
     item: T,
-) -> Result<LinkedOodReply<A>, IntOodAppErr<'a, A>>
+) -> Result<LinkedOodReply<A>, IntOodAppErr<A>>
 where
-    A: 'a,
     A: Sized,
-    T: Into<A::Item<'a>>,
+    T: Into<<A::Item as TryToOodBytes>::O<'a>>,
+    <A as OodAction>::Item: 'a,
 {
     let item = HeaderValue::from_maybe_shared(
-        item.into()
-            .to_ood_bytes()
-            .map_err(IntOodParseErr::ItemParseErr)?,
+        A::Item::to_ood_bytes(item.into()).map_err(IntOodParseErr::ItemParseErr)?,
     )
     .map_err(|_| IntOodParseErr::InvalidHeaderValue)?;
 
@@ -46,24 +51,25 @@ where
 }
 
 pub trait OodActionHasData: OodAction {
-    fn new<'a, T, K>(data: T, item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<'a, Self>>
+    fn new<'a, T, K>(data: T, item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<Self>>
     where
-        Self: 'a,
         <Self::ActionType as OodActionType>::Data: From<T>,
         Self: Sized,
-        K: Into<Self::Item<'a>>,
+        K: Into<<Self::Item as TryToOodBytes>::O<'a>>,
+        <Self as OodAction>::Item: 'a,
     {
         new_reply::<_, _>(data.into(), item)
     }
 }
 
 pub trait OodActionHasNoData: OodAction {
-    fn new<'a, K>(item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<'a, Self>>
+    fn new<'a, K>(item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<Self>>
     where
-        Self: Sized + 'a,
+        Self: Sized,
         Self::ActionType: OodActionType<Data = ()>,
         <Self::ActionType as OodActionType>::Data: From<()>,
-        K: Into<Self::Item<'a>>,
+        K: Into<<Self::Item as TryToOodBytes>::O<'a>>,
+        <Self as OodAction>::Item: 'a,
     {
         new_reply::<_, _>((), item)
     }
@@ -87,12 +93,10 @@ impl<S, T: OodAction<ActionType = HasData<S>>> OodActionHasData for T {}
 
 pub trait OodAction {
     const NAME: &'static str;
-    type Item<'a>: TryToOodBytes
-    where
-        Self: 'a;
+    type Item: TryToOodBytes;
     // include a lifetime to allow for borrowing
 
-    type Reply: OodParse + ?Sized;
+    type Reply: OodParse;
     type ActionType: OodActionType;
 }
 

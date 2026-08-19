@@ -1,4 +1,4 @@
-use std::{convert::Infallible, marker::PhantomData, str::Utf8Error};
+use std::{convert::Infallible, marker::PhantomData, string::FromUtf8Error};
 
 use mime::IMAGE_JPEG;
 use thiserror::Error;
@@ -11,46 +11,44 @@ pub struct NotEmpty;
 
 impl OodParse for () {
     type E = NotEmpty; // in case user wants to enforce that return is empty (if not, just discard!)
-    type O<'a> = ();
-    fn ood_try_from<'a>(
-        body: &'a bytes::Bytes,
-        _: &'a Option<mime::Mime>,
-    ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>> {
+    type O = ();
+    fn ood_try_from(
+        body: bytes::Bytes,
+        _: Option<mime::Mime>,
+    ) -> Result<Self::O, OodPayloadParseError<Self::E>> {
         (body.len() == 0).then_some(()).ok_or(NotEmpty.into())
     }
 }
 
-impl OodParseWithContentType for str {
-    type E = Utf8Error;
-    type O<'a>
-        = &'a str
-    where
-        Self: 'a;
-    fn ood_try_from<'a>(
-        body: &'a bytes::Bytes,
-        content_type: &'a mime::Mime,
-    ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>> {
+impl OodParseWithContentType for String {
+    type E = FromUtf8Error;
+    type O = String;
+
+    fn ood_try_from(
+        body: bytes::Bytes,
+        content_type: mime::Mime,
+    ) -> Result<Self::O, OodPayloadParseError<Self::E>> {
         // for now enforce ONLY text - even though things like application/{json, xml etc} may also be valid utf-8/16
         if content_type.type_() != mime::TEXT {
             return Err(OodPayloadParseError::InvalidContentType(
                 content_type.clone(),
             ));
         }
-        str::from_utf8(body).map_err(Into::into)
+        String::from_utf8(body.into()).map_err(Into::into)
     }
 }
 
-pub struct OodOptional<T: ?Sized>(PhantomData<T>);
+pub struct OodOptional<T>(PhantomData<T>);
 
 // e.g., Option<str> -> adapter allows for cases where there is no content-type header
-impl<T: OodParse + ?Sized> OodParse for OodOptional<T> {
+impl<T: OodParse> OodParse for OodOptional<T> {
     // I have to remember `+ ?Sized` actually broadens the scope!
     type E = T::E;
-    type O<'a> = Option<T::O<'a>>;
-    fn ood_try_from<'a>(
-        body: &'a bytes::Bytes,
-        content_type: &'a Option<mime::Mime>,
-    ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>> {
+    type O = Option<T::O>;
+    fn ood_try_from(
+        body: bytes::Bytes,
+        content_type: Option<mime::Mime>,
+    ) -> Result<Self::O, OodPayloadParseError<Self::E>> {
         if body.trim_ascii().len() == 0 {
             Ok(None)
         } else {
@@ -62,17 +60,17 @@ impl<T: OodParse + ?Sized> OodParse for OodOptional<T> {
 pub struct ImageWrapper(bytes::Bytes);
 impl OodParseWithContentType for ImageWrapper {
     type E = Infallible;
-    type O<'a> = &'a [u8];
-    fn ood_try_from<'a>(
-        body: &'a bytes::Bytes,
-        content_type: &'a mime::Mime,
-    ) -> Result<Self::O<'a>, OodPayloadParseError<Self::E>> {
-        if content_type != &IMAGE_JPEG {
+    type O = bytes::Bytes; // do not need to convert to Vec<u8>
+    fn ood_try_from(
+        body: bytes::Bytes,
+        content_type: mime::Mime,
+    ) -> Result<Self::O, OodPayloadParseError<Self::E>> {
+        if content_type != IMAGE_JPEG {
             return Err(OodPayloadParseError::InvalidContentType(
                 content_type.clone(),
             ));
         }
-        Ok(&body[..])
+        Ok(body)
     }
 }
 
