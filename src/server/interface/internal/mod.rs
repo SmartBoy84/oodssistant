@@ -30,8 +30,8 @@ pub trait TryToOodBytes {
 }
 
 fn new_reply<'a, A: OodAction, T>(
-    data: <A::ActionType as OodActionType>::Data,
     item: T,
+    data: <A::ActionType as OodActionType>::Data,
 ) -> Result<LinkedOodReply<A>, IntOodAppErr<A>>
 where
     A: Sized,
@@ -51,14 +51,14 @@ where
 }
 
 pub trait OodActionHasData: OodAction {
-    fn new<'a, T, K>(data: T, item: K) -> Result<LinkedOodReply<Self>, IntOodAppErr<Self>>
+    fn new<'a, T, K>(item: K, data: T) -> Result<LinkedOodReply<Self>, IntOodAppErr<Self>>
     where
         <Self::ActionType as OodActionType>::Data: From<T>,
         Self: Sized,
         K: Into<<Self::Item as TryToOodBytes>::O<'a>>,
         <Self as OodAction>::Item: 'a,
     {
-        new_reply::<_, _>(data.into(), item)
+        new_reply::<_, _>(item, data.into())
     }
 }
 
@@ -71,7 +71,7 @@ pub trait OodActionHasNoData: OodAction {
         K: Into<<Self::Item as TryToOodBytes>::O<'a>>,
         <Self as OodAction>::Item: 'a,
     {
-        new_reply::<_, _>((), item)
+        new_reply::<_, _>(item,())
     }
 }
 

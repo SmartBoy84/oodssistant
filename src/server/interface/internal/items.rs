@@ -6,11 +6,20 @@ use serde::Serialize;
 use crate::server::interface::internal::TryToOodBytes;
 
 // json types
-pub struct JsonSlice<'a, T: ?Sized>(&'a T);
-impl<'a, T: Serialize + ?Sized, U: AsRef<T> + ?Sized> From<&'a U> for JsonSlice<'a, T> {
+
+// this is used to allow user to pass &["13", etc] instead of &["12"][..]
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct JsonRef<'a, T: ?Sized>(&'a T);
+impl<'a, T: Serialize + ?Sized, U: AsRef<T> + ?Sized> From<&'a U> for JsonRef<'a, T> {
     fn from(value: &'a U) -> Self {
         Self(value.as_ref())
     }
+}
+
+#[derive(Serialize)]
+struct JsonItemWrapper<T: ?Sized> {
+    inner: T,
 }
 
 // generic json wrapper
@@ -18,14 +27,30 @@ pub struct JsonItem<T: Serialize + ?Sized>(PhantomData<fn(&T)>);
 impl<S: Serialize + ?Sized> TryToOodBytes for JsonItem<S> {
     type E = serde_json::Error;
     type O<'a>
-        = JsonSlice<'a, S>
+        = JsonRef<'a, S>
     where
         S: 'a;
     fn to_ood_bytes<'a>(s: Self::O<'a>) -> Result<bytes::Bytes, Self::E>
     where
         Self: 'a,
     {
-        serde_json::to_vec(s.0).map(Bytes::from)
+        serde_json::to_vec(&s).map(Bytes::from)
+    }
+}
+
+// e.g., ios shortcuts can't parse a list json value without it being nested in a dictionary
+pub struct JsonItemWrap<T: Serialize + ?Sized>(PhantomData<fn(&T)>);
+impl<S: Serialize + ?Sized> TryToOodBytes for JsonItemWrap<S> {
+    type E = serde_json::Error;
+    type O<'a>
+        = JsonRef<'a, S>
+    where
+        S: 'a;
+    fn to_ood_bytes<'a>(s: Self::O<'a>) -> Result<bytes::Bytes, Self::E>
+    where
+        Self: 'a,
+    {
+        serde_json::to_vec(&JsonItemWrapper { inner: s }).map(Bytes::from)
     }
 }
 

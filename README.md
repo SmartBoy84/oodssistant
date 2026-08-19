@@ -18,17 +18,21 @@ By far my most complex project yet. It includes two API libraries (Gcal -> OAuth
     - [x] pages only accessible through another page
     - [x] test redirect cache persistence
 
-# Mutex/lock issue
-KISS - KEEP IT GOD DAYUM SIMPLE STUPID
-
-1. Create a new shortcut to get unique device ID
-2. Determine a way to store task state with ID
-3. Internal redirect should use the same ID
-
 # TODO
-- Switch Item to parser pattern (e.g., parser object itself doesn't hold ownership)
+- Read and write files (TRIVIAL now!)
+- Button data should be the array of strings (not item)
+- Flow not working - only one request before freezing?
 
 # API Notes
+- Every last thing has hours of thought put into it
+- Custom page types
+- Custom data type (e.g., streaming) for summary
+- Custom payload type
+- Custom item parser
+- Easy b.cf(..).p() but efficient - can store b.cf() and run repeatedly
+- Allows for getting id from user's device
+- Cache implemented
+
 ## Shortcuts elements
 - For SharedBytes you can instantiate the SharedBytes first if you want to re-use
 

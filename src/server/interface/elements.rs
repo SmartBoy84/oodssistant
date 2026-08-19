@@ -4,8 +4,11 @@ use serde::Serialize;
 use strum::IntoStaticStr;
 
 use crate::server::interface::{
-    external::responses::{ImageWrapper, OodOptional}, internal::{
-        HasData, NoData, OodAction, items::{JsonItem, OodDisplayItem, OodEnumItem, OodOptionalItem}, payloads::SharedBytes,
+    external::responses::{ImageWrapper, OodOptional},
+    internal::{
+        HasData, NoData, OodAction,
+        items::{JsonItemWrap, OodDisplayItem, OodEnumItem, OodOptionalItem},
+        payloads::SharedBytes,
     },
 };
 
@@ -72,7 +75,7 @@ where
     T: Serialize,
 {
     const NAME: &'static str = "button";
-    type Item = JsonItem<[T]>;
+    type Item = JsonItemWrap<[T]>;
     type Reply = String; // shortcut limitation/simplification - no text back is an error (i.e., not optional)
     type ActionType = HasData<SharedBytes<str>>;
 }

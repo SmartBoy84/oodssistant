@@ -1,6 +1,6 @@
 // to enforce guarantees about communication (i.e., wait on in and always give an out)
 
-use std::{borrow::Cow, marker::PhantomData};
+use std::{borrow::{Borrow, Cow}, marker::PhantomData};
 
 use tokio::sync::mpsc;
 
@@ -56,14 +56,15 @@ impl OodBridge {
         Ok(OodPayloadParser::new(inner))
     }
 
-    pub async fn cf<A>(
+    pub async fn cf<A, T>(
         &mut self,
-        payload: &LinkedOodReply<A>,
+        payload: T,
     ) -> Result<OodPayloadParser<A>, IntOodAppErr<A>>
     where
         A: OodAction,
+        T: Borrow<LinkedOodReply<A>>
     {
-        self.comm(payload).await
+        self.comm(payload.borrow()).await
     }
 
     pub async fn external_redirect(self, uri: Cow<'static, str>) -> OodFinished {
